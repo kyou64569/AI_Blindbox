@@ -1,0 +1,94 @@
+"""配置加载与路径管理。
+
+所有体积较大文件（缓存/产物/上传）默认落在 D 盘项目目录，不写 C 盘。
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+# 项目根：本文件位于 backend/app/config.py，上溯一级到 backend
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+# 大文件路径默认绑定到 D 盘项目目录，避免写入 C 盘
+DEFAULT_CACHE_DIR = PROJECT_ROOT / ".cache"
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output"
+DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
+
+
+def _as_path(value: str | None, default: Path) -> Path:
+    """把配置中的路径字符串解析为绝对路径；若为空或不安全（落在 C 盘系统目录），回退默认。"""
+    if not value:
+        return default
+    p = Path(value).expanduser()
+    if not p.is_absolute():
+        p = PROJECT_ROOT / p
+    # 安全兜底：不允许落进 C 盘用户敏感目录
+    dangerous = ("AppData", "Desktop", "Documents", "Downloads", "Program Files")
+    parts = set(p.parts)
+    if p.drive.upper() == "C:" and any(d in parts for d in dangerous):
+        return default
+    return p
+
+
+class Settings:
+    def __init__(self, raw: dict[str, Any]):
+        self.raw = raw
+        paths = raw.get("paths", {}) or {}
+        self.cache_dir = _as_path(paths.get("cache_dir"), DEFAULT_CACHE_DIR)
+        self.output_dir = _as_path(paths.get("output_dir"), DEFAULT_OUTPUT_DIR)
+        self.data_dir = _as_path(paths.get("data_dir"), DEFAULT_DATA_DIR)
+        for d in (self.cache_dir, self.output_dir, self.data_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def global_(self) -> dict[str, Any]:
+        return self.raw.get("global", {}) or {}
+
+    @property
+    def mock(self) -> bool:
+        return bool(self.raw.get("mock", False))
+
+    @property
+    def agents(self) -> dict[str, Any]:
+        return self.raw.get("agents", {}) or {}
+
+    @property
+    def randomness(self) -> dict[str, Any]:
+        return self.raw.get("randomness", {}) or {}
+
+    @property
+    def modes(self) -> list[dict[str, Any]]:
+        return self.raw.get("modes", []) or []
+
+    @property
+    def providers(self) -> dict[str, Any]:
+        return self.raw.get("providers", {}) or {}
+
+    def get_mode(self, mode_id: str) -> dict[str, Any] | None:
+        for m in self.modes:
+            if m.get("id") == mode_id:
+                return m
+        return None
+
+
+def load_settings(path: str | Path | None = None) -> Settings:
+    path = Path(path) if path else (PROJECT_ROOT / "settings.yaml")
+    if not path.exists():
+        raise FileNotFoundError(f"配置文件不存在: {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f)
+    return Settings(raw)
+
+
+# 模块级单例（进程内）
+SETTINGS = load_settings()
+
+
+def set_settings(s: "Settings") -> None:
+    """热更新全局单例，确保所有引用（pipeline/main）同步。"""
+    global SETTINGS
+    SETTINGS = s

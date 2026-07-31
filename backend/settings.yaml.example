@@ -1,0 +1,201 @@
+# =============================================================================
+#  AI Blind Box — Configuration Template
+# =============================================================================
+#  Copy this file to settings.yaml and fill in your own API keys.
+#  settings.yaml is in .gitignore — your real keys will never be committed.
+# =============================================================================
+
+paths:
+  # Storage directories (change D:/work/AI_Blindbox to your project root)
+  cache_dir: D:/work/AI_Blindbox/.cache
+  output_dir: D:/work/AI_Blindbox/output
+  data_dir: D:/work/AI_Blindbox/data
+
+# ---------------------------------------------------------------------------
+#  Global defaults (used as fallback by all agents)
+# ---------------------------------------------------------------------------
+global:
+  default_model: agnes-2.5-flash
+  default_base_url: https://apihub.agnes-ai.com/v1
+  default_api_key: "<YOUR_AGNES_API_KEY_HERE>"
+  pipeline_mode: standard                 # "standard" (3 agents) or "lite" (2 agents)
+
+# Set to true for demo mode (no API calls, uses mock outputs)
+mock: false
+
+# ---------------------------------------------------------------------------
+#  Agent configurations — each agent can override the global defaults
+# ---------------------------------------------------------------------------
+agents:
+  creative:
+    model: models/gemini-3.1-flash-lite
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    api_key: "<YOUR_GEMINI_API_KEY_HERE>"
+    temperature: 0.9
+    system_prompt: |
+      You are a creative brainstorming engine. Break conventions and produce wildly
+      imaginative concept descriptions. You will receive random seeds — you must weave
+      them into your creative output. Output ONLY the concept description, nothing else.
+
+  planner:
+    model: deepseek-v4-flash
+    base_url: https://token.sensenova.cn/v1
+    api_key: "<YOUR_SENSENOVA_API_KEY_HERE>"
+    temperature: 0.2
+    system_prompt: |
+      You are a precise formatting engineer. Converge creative concepts into
+      structured output following the specified format. Output only the formatted result.
+
+  executor:
+    model: ""
+    base_url: ""
+    api_key: ""
+    temperature: 0.8
+
+# ---------------------------------------------------------------------------
+#  Random seed pool — dimensions and their available entries
+# ---------------------------------------------------------------------------
+randomness:
+  enabled: true
+  per_open_draw: 3
+  pool:
+    theme:
+      - Cyberpunk Ruins
+      - Deep-Sea City-State
+      - Tang Dynasty Marketplace
+      - Post-Apocalyptic Greenhouse
+      - Wasteland Tea Ceremony
+      - Cloudborne Forge
+    style:
+      - Ink-Wash Realism
+      - Vaporwave
+      - Stark Documentary
+      - Fairy Tale Illustration
+      - Glitch-Art Ukiyo-e
+    constraint:
+      - Must include an orange cat
+      - Use only three colors
+      - Include a monologue
+      - Black, white, and grey only
+      - Include a frozen vintage pocket watch
+    twist:
+      - The protagonist is actually an AI
+      - The ending is the beginning
+      - Silence speaks louder than words
+      - The reflection in the mirror moves first
+
+# ---------------------------------------------------------------------------
+#  Output modes — each defines how the blind box pipeline works
+# ---------------------------------------------------------------------------
+modes:
+  - id: image
+    name: Picture
+    creative_prompt: Create a stunning illustration concept.
+    planner_template: Output an English image prompt + negative prompt + dimensions.
+    executor_type: image
+    output_handler: image_url
+
+  - id: logo
+    name: Logo
+    creative_prompt: Create a clean, recognizable brand logo concept.
+    planner_template: "Output an English image prompt: minimal vector logo, 1-2 primary colors, flat design, centered composition, plain white background. Only the prompt, no explanation."
+    executor_type: image
+    output_handler: image_url
+
+  - id: meme
+    name: Meme
+    creative_prompt: Create a funny, expressive sticker/meme concept.
+    planner_template: "Output an English image prompt: cute sticker style, single character with exaggerated expressive emotion, bold black outline, pure white background, square and centered. Only the prompt, no explanation."
+    executor_type: image
+    output_handler: image_url
+
+  - id: comic
+    name: Comic
+    creative_prompt: Create a dramatic single-panel comic/storyboard concept.
+    planner_template: "Output an English image prompt: comic/manga style, bold line art, single panel, dramatic lighting and composition, purely visual storytelling, no text or speech bubbles. Only the prompt, no explanation."
+    executor_type: image
+    output_handler: image_url
+
+  - id: podcast
+    name: Podcast
+    creative_prompt: Create a podcast episode or audio segment concept.
+    planner_template: "Output a Chinese podcast script (~200-400 characters) ready for voice reading: conversational, vivid, with natural pauses. Only the script, no titles, chapter numbers, or stage directions."
+    executor_type: tts
+    output_handler: audio_file
+
+  - id: video
+    name: Video
+    creative_prompt: Create a short video creative concept.
+    planner_template: Output storyboard description + style + duration.
+    duration_seconds: 15
+    executor_type: video
+    output_handler: video_file
+
+  - id: novel
+    name: Novel
+    creative_prompt: Create a short story concept.
+    planner_template: Output outline + writing requirements.
+    executor_type: text
+    output_handler: text
+
+  - id: poem
+    name: Poetry
+    creative_prompt: Create a stunning Chinese short poem concept.
+    planner_template: "Output format: [Title] one line; [Body] several lines, concise and vivid, may rhyme or be free verse; [Note] one-line inspiration. Only the poem and note, no extra explanation."
+    executor_type: text
+    output_handler: text
+
+  - id: character
+    name: Character Card
+    creative_prompt: Create a memorable fictional character concept.
+    planner_template: "Output strictly one field per line: Name | Appearance | Personality | Backstory | Catchphrase | Hidden Trait. Separate content with | after the field name. No numbering, no explanation."
+    executor_type: text
+    output_handler: text
+
+  - id: naming
+    name: Naming
+    creative_prompt: Create a set of creative, memorable names (for projects/characters/places/items).
+    planner_template: Output 5 names, one per line, format: Name -- one-line meaning or story. Style should match the drawn seeds.
+    executor_type: text
+    output_handler: text
+
+  - id: puzzle
+    name: Puzzle
+    creative_prompt: Create an intriguing mystery puzzle (soup-style).
+    planner_template: "Output format: [Scenario] short suspenseful description; [Truth] the solution/answer; [Hint] one guiding clue. Only these three blocks, no extra explanation."
+    executor_type: text
+    output_handler: text
+
+  - id: code
+    name: Code
+    creative_prompt: Create an interesting small project idea.
+    planner_template: Output tech stack / directory structure / module breakdown / acceptance criteria.
+    executor_type: code-spec
+    output_handler: spec_md
+    code_cli:
+      enabled: false
+      tool: claude
+      sandbox: true
+
+# ---------------------------------------------------------------------------
+#  Provider credentials for external execution APIs
+# ---------------------------------------------------------------------------
+providers:
+  image:
+    base_url: https://apihub.agnes-ai.com/v1
+    api_key: "<YOUR_AGNES_API_KEY_HERE>"
+    model: agnes-image-2.0-flash
+
+  video:
+    base_url: https://apihub.agnes-ai.com/v1
+    api_key: "<YOUR_AGNES_API_KEY_HERE>"
+    model: agnes-video-v2.0
+
+  tts:
+    # Default: Edge TTS (free, no API key needed, good Chinese voice).
+    # To switch to cloud TTS (OpenAI / Fish Audio, etc.), change engine and fill base_url / api_key / model / voice.
+    engine: edge-tts
+    voice: zh-CN-XiaoxiaoNeural
+    base_url: ""
+    api_key: ""
+    model: ""
