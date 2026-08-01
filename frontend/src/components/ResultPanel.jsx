@@ -21,6 +21,30 @@ export default function ResultPanel({ result, onReroll }) {
           <code>{output}</code>
         </div>
       )}
+      {output_kind === "game_html" && (() => {
+        const src = archived?.local_file
+          ? `/output/${archived.local_file}`
+          : output.startsWith("/output/")
+          ? output
+          : null;
+        return src ? (
+          <iframe
+            src={src}
+            sandbox="allow-scripts"
+            title="小游戏"
+            style={{
+              width: "100%",
+              height: 420,
+              border: 0,
+              borderRadius: 12,
+              marginTop: 8,
+              display: "block",
+            }}
+          />
+        ) : (
+          <div className="plan">{output}</div>
+        );
+      })()}
       {(output_kind === "image_url" || output_kind === "video_file" || output_kind === "audio_file") &&
         (() => {
           // 与主页面/历史页一致：归档后 output 可能仅是本地相对文件名（无 /output/ 前缀），

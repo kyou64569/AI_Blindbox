@@ -102,6 +102,7 @@
       const [saved, setSaved] = useState(false);
       const [poolUI, setPoolUI] = useState({ addText: {}, gen: {}, genErr: {} });
       const initialPoolRef = useRef(null);
+      const [voices, setVoices] = useState({ edge: [], cloud: [], current: "" });
       const [history, setHistory] = useState([]);
       const [histLoading, setHistLoading] = useState(false);
       const [histError, setHistError] = useState(null);
@@ -116,6 +117,10 @@
           setConfig(d.config); setPaths(d.paths || {});
           if (initialPoolRef.current === null) initialPoolRef.current = d.config?.randomness?.pool || {};
         }).catch(() => {});
+        // Load available TTS voices
+        fetch("/api/tts/voices").then(r => r.json()).then(d => {
+          setVoices({ edge: d.edge || [], cloud: d.cloud || [], current: d.current || "" });
+        }).catch(() => {});
       }, []);
 
       const runOpen = async (modeId, seed) => {
@@ -124,7 +129,7 @@
         setLoading(true); setError(null);
         const ctrl = new AbortController();
         // 兜底超时 9分40秒（略小于代理层的 10 分钟），避免极端情况下请求永久挂起
-        const timer = setTimeout(() => ctrl.abort(), 580000);
+        const timer = setTimeout(() => ctrl.abort(), 720000);
         try {
           const resp = await fetch("/api/open", {
             method: "POST", headers: { "Content-Type": "application/json" },
@@ -136,7 +141,7 @@
           setResult(data);
         } catch (e) {
           if (e.name === "AbortError") {
-            setError("开盲盒超时：视频类任务生成较慢，已自动取消。请稍后重试，或确认视频服务可连通。");
+            setError("请求超时：生成任务耗时较长（漫画/视频等复杂内容需要较长时间），请稍后重试。");
           } else if (e.message === "Failed to fetch") {
             setError("与服务器连接中断（长连接可能被网络/代理重置）。请确认前后端服务正常后重试。");
           } else {
@@ -183,6 +188,10 @@
           });
           if (!resp.ok) throw new Error("保存失败");
           setSaved(true);
+          // Reload voices after save to reflect the new config
+          fetch("/api/tts/voices").then(r => r.json()).then(d => {
+            setVoices({ edge: d.edge || [], cloud: d.cloud || [], current: d.current || "" });
+          }).catch(() => {});
         } catch (e) { setError("保存失败: " + e.message); }
       };
 
@@ -350,6 +359,11 @@
                     ? html`<audio src=${mediaSrc(result)} controls preload="metadata" style=${{width:"100%",borderRadius:"12px",marginTop:"8px"}}></audio>`
                     : html`<div class="plan">${result.output}</div>`}
                   ${result.tts_info ? html`<div class="note" style=${{marginTop:"6px"}}>🎙 合成：${result.tts_info}</div>` : null}`}
+                ${result.output_kind === "game_html" && html`
+                  ${mediaSrc(result)
+                    ? html`<iframe src=${mediaSrc(result)} sandbox="allow-scripts" title="小游戏" style=${{width:"100%",height:"420px",border:"0",borderRadius:"12px",marginTop:"8px"}}></iframe>`
+                    : html`<div class="plan">${result.output}</div>`}
+                  <div class="note" style=${{marginTop:"6px"}}>🎮 小游戏（点击操作；沙箱隔离运行）</div>`}
                 ${result.archived && html`
                   <div class="archive-box">
                     <span class="archive-badge">✓ 已自动归档</span>
@@ -429,16 +443,26 @@
             <div class="section-title">播客 TTS 语音合成（文字 → 语音）</div>
             <div class="config-form">
               <div class="note">无需选择引擎：<b>不填 base_url / api_key</b> → 自动使用免费 Edge TTS；<b>同时填好 base_url / api_key</b> → 走云端大模型（用下方 model 指定模型，任意兼容 OpenAI /audio/speech 的厂商均可）；云端调用出错会自动回退 Edge TTS。</div>
-              <div class="form-row"><label>音色 voice（edge-tts 例：zh-CN-XiaoxiaoNeural；云端例：alloy / echo / 厂商自定义名）</label>
-                <input value=${tp.voice || ""} onInput=${e => update("providers.tts.voice", e.target.value)} placeholder="留空=各引擎默认音色" />
+              <div class="form-row"><label>音色 Voice</label>
+                <input value=${tp.voice || ""} onInput=${e => update("providers.tts.voice", e.target.value)}
+                  list="voice-suggestions" placeholder="Edge 例: zh-CN-XiaoxiaoNeural · 云端直接手写音色名" />
+                <datalist id="voice-suggestions">
+                  <optgroup label="Edge TTS（免费·本地）">
+                    ${voices.edge.map(v => html`<option key=${v.id} value=${v.id}>${v.name}</option>`)}
+                  </optgroup>
+                  <optgroup label="常用云端音色（参考）">
+                    ${voices.cloud.map(v => html`<option key=${v.id} value=${v.id}>${v.name}</option>`)}
+                  </optgroup>
+                </datalist>
+                <div class="note">可手写任意音色名，或从下拉建议中选择</div>
               </div>
-            </div>
             ${renderModelSlot({title:"TTS 模型（云端模式必填 model / base_url / api_key；未填 base_url/api_key 则默认免费 Edge TTS；云端出错自动回退 Edge）", basePath:"providers.tts", keyMap:{model:"model",base_url:"base_url",api_key:"api_key"}, config, update})}
 
             <div class="paths">${"大文件目录（默认 D 盘，不写 C 盘）：\n缓存: " + (paths.cache_dir||"") + "\n产物: " + (paths.output_dir||"") + "\n上传: " + (paths.data_dir||"")}</div>
             ${saved && html`<div class="note" style="color:var(--accent-2)">✓ 已保存</div>`}
             ${error && html`<div class="error">${error}</div>`}
             <button class="save-btn" style="margin-top:12px" onClick=${save}>保存配置</button>
+            </div>
           `}
 
           ${tab === "history" && html`
@@ -462,6 +486,10 @@
                     <h3>成品</h3>
                     ${it.output_kind === "text" && html`<div class="concept">${it.output || ""}</div>`}
                     ${it.output_kind === "spec_md" && html`<div class="plan"><code>${it.output || ""}</code></div>`}
+                    ${it.output_kind === "game_html" && html`
+                      ${it.local_file
+                        ? html`<iframe src=${"/output/" + it.local_file} sandbox="allow-scripts" title="小游戏" style=${{width:"100%",height:"380px",border:"0",borderRadius:"12px",marginTop:"8px"}}></iframe>`
+                        : html`<div class="plan">${it.output || ""}</div>`}`}
                     ${(it.output_kind === "image_url" || it.output_kind === "video_file" || it.output_kind === "audio_file") && html`
                       ${it.output_kind === "video_file"
                         ? html`<video src=${it.local_file ? "/output/" + it.local_file : it.output} controls style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}}></video>`

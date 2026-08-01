@@ -116,7 +116,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         req = urllib.request.Request(url, data=body, method=method)
         req.add_header("Content-Type", self.headers.get("Content-Type", "application/json"))
         try:
-            resp = urllib.request.urlopen(req, timeout=600)
+            resp = urllib.request.urlopen(req, timeout=720)
             data = resp.read()
             status = resp.status
             ctype = resp.headers.get("Content-Type", "application/json")
@@ -149,7 +149,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 class ReuseTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
-    daemon_threads = True  # 客户端中途断开不挂起线程
+    daemon_threads = True  # client threads won't block shutdown
 
 
 def _create_server() -> "ReuseTCPServer":

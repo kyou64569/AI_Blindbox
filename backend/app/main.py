@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from .config import PROJECT_ROOT, SETTINGS, load_settings, set_settings
+from . import config
 from . import pipeline
 
 app = FastAPI(title="AI 盲盒", version="0.1.0")
@@ -59,7 +59,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SETTINGS_PATH = PROJECT_ROOT / "settings.yaml"
+SETTINGS_PATH = config.PROJECT_ROOT / "settings.yaml"
 _config_lock = threading.Lock()
 
 
@@ -84,7 +84,7 @@ class GenerateSeedRequest(BaseModel):
 
 @app.get("/api/modes")
 def list_modes():
-    return {"modes": SETTINGS.modes}
+    return {"modes": config.get_settings().modes}
 
 
 @app.get("/api/history")
@@ -95,7 +95,7 @@ def list_history(mode: str | None = None, limit: int = 100):
     - 读取异常的单条跳过，不影响整体。
     - 返回 {items: [{id,mode,timestamp,seed,output_kind,concept,output,local_file,json}], total}。
     """
-    out_dir = SETTINGS.output_dir
+    out_dir = config.get_settings().output_dir
     files = sorted(
         out_dir.glob("result_*.json"),
         key=lambda p: p.stat().st_mtime,
@@ -127,10 +127,11 @@ def list_history(mode: str | None = None, limit: int = 100):
 
 @app.get("/api/config")
 def get_config():
-    return {"config": SETTINGS.raw, "paths": {
-        "cache_dir": str(SETTINGS.cache_dir),
-        "output_dir": str(SETTINGS.output_dir),
-        "data_dir": str(SETTINGS.data_dir),
+    settings = config.get_settings()
+    return {"config": settings.raw, "paths": {
+        "cache_dir": str(settings.cache_dir),
+        "output_dir": str(settings.output_dir),
+        "data_dir": str(settings.data_dir),
     }}
 
 
@@ -232,9 +233,8 @@ def save_config(req: SaveConfigRequest):
         import yaml
         with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
             yaml.safe_dump(req.config, f, allow_unicode=True, sort_keys=False)
-        new_settings = load_settings(SETTINGS_PATH)
-        set_settings(new_settings)
-        pipeline.SETTINGS = new_settings
+        new_settings = config.load_settings(SETTINGS_PATH)
+        config.set_settings(new_settings)
     return {"ok": True}
 
 
@@ -246,7 +246,7 @@ def generate_seed(req: GenerateSeedRequest):
     避免生成重复种子。返回 {"seed": "..."}。
     """
     dim = req.dimension
-    pool = (SETTINGS.randomness or {}).get("pool", {}) or {}
+    pool = (config.get_settings().randomness or {}).get("pool", {}) or {}
     existing = req.existing or pool.get(dim, []) or []
     try:
         seed = pipeline.generate_pool_seed(dim, existing)
@@ -266,6 +266,7 @@ def open_box(req: OpenRequest):
             "output": result.output,
             "output_kind": result.output_kind,
             "tts_info": result.tts_info,
+            "caption": result.caption,
             "archived": result.archived,
         }
     except Exception as e:
@@ -274,14 +275,108 @@ def open_box(req: OpenRequest):
 
 @app.get("/")
 def health():
-    return {"status": "ok", "mock": SETTINGS.mock}
+    return {"status": "ok", "mock": config.get_settings().mock}
+
+
+@app.get("/api/tts/voices")
+def list_tts_voices(base_url: str = "", api_key: str = ""):
+    """列出可用的 TTS 音色。
+
+    优先用 query 参数；若为空则回退到当前 settings.yaml 的 providers.tts 凭据。
+    """
+    base_url = base_url.strip()
+    api_key = api_key.strip()
+    if not base_url or not api_key:
+        prov = (config.get_settings().providers.get("tts", {}) or {})
+        base_url = base_url or (prov.get("base_url") or "").strip()
+        api_key = api_key or (prov.get("api_key") or "").strip()
+
+    edge_voices: list[dict] = []
+    try:
+        import asyncio, edge_tts
+        async def _get():
+            return await edge_tts.list_voices()
+        voices = asyncio.run(_get())
+        if isinstance(voices, dict):
+            voices = voices.get("value", voices.get("voices", []))
+        for v in voices:
+            name = v.get("ShortName", v.get("Name", ""))
+            locale = v.get("Locale", "")
+            gender = v.get("Gender", "")
+            if "zh" in locale.lower():
+                edge_voices.append({
+                    "id": name,
+                    "name": f"{name} ({locale} {gender})",
+                    "engine": "edge-tts",
+                })
+    except Exception as e:
+        import logging
+        logging.warning(f"Failed to fetch Edge TTS voices: {type(e).__name__}: {e}")
+        edge_voices = [
+            {"id": "zh-CN-XiaoxiaoNeural", "name": "xiaoxiao (CN 女)", "engine": "edge-tts"},
+            {"id": "zh-CN-YunyangNeural", "name": "yunyang (CN 男)", "engine": "edge-tts"},
+            {"id": "zh-CN-XiaoyiNeural", "name": "xiaoyi (CN 女)", "engine": "edge-tts"},
+        ]
+
+    cloud_voices: list[dict] = []
+    if base_url and api_key:
+        # Attempt to fetch voices from the configured TTS provider
+        import urllib.request, json as jmod
+        candidates = [
+            base_url.rstrip("/") + "/audio/voices",
+            base_url.rstrip("/") + "/v1/audio/voices",
+            base_url.rstrip("/") + "/voices",
+        ]
+        for url in candidates:
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    method="GET",
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = jmod.loads(resp.read())
+                items = data.get("data") or data.get("voices") or data.get("items") or []
+                for v in items:
+                    vid = v.get("id") or v.get("name") or v.get("voice_id") or ""
+                    vname = v.get("name") or v.get("display_name") or vid
+                    if vid:
+                        cloud_voices.append({"id": vid, "name": vname, "engine": "cloud"})
+                if cloud_voices:
+                    break
+            except Exception:
+                continue
+        if not cloud_voices:
+            cloud_voices.append({
+                "id": "__custom__",
+                "name": "* 提供商未暴露音色列表，请下方文本框手动输入音色名",
+                "engine": "cloud",
+            })
+
+    if not cloud_voices:
+        cloud_voices = [
+            {"id": "alloy", "name": "alloy (中性·OpenAI)", "engine": "cloud"},
+            {"id": "echo", "name": "echo (男·OpenAI)", "engine": "cloud"},
+            {"id": "fable", "name": "fable (英式男·OpenAI)", "engine": "cloud"},
+            {"id": "onyx", "name": "onyx (深沉男·OpenAI)", "engine": "cloud"},
+            {"id": "nova", "name": "nova (女·OpenAI)", "engine": "cloud"},
+            {"id": "shimmer", "name": "shimmer (女·OpenAI)", "engine": "cloud"},
+        ]
+
+    current = (config.get_settings().providers.get("tts", {}) or {}).get("voice", "")
+    return {"edge": edge_voices, "cloud": cloud_voices, "current": current}
 
 
 @app.get("/output/{path:path}")
 def serve_output(path: str):
     """预览/下载开盒归档产物（限制在 output_dir 内，防目录穿越）。"""
     import urllib.parse
-    target = (SETTINGS.output_dir / urllib.parse.unquote(path)).resolve()
-    if str(target).startswith(str(SETTINGS.output_dir)) and target.exists():
+    try:
+        settings = config.get_settings()
+        target = (settings.output_dir / urllib.parse.unquote(path)).resolve()
+        target.relative_to(settings.output_dir)  # Raises ValueError if outside
+    except ValueError:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    if target.exists():
         return FileResponse(str(target))
     raise HTTPException(status_code=404, detail="文件不存在")

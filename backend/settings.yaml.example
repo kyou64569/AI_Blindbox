@@ -94,34 +94,89 @@ modes:
     planner_template: Output an English image prompt + negative prompt + dimensions.
     executor_type: image
     output_handler: image_url
+    size: 1024x1024
 
   - id: logo
     name: Logo
     creative_prompt: Create a clean, recognizable brand logo concept.
-    planner_template: "Output an English image prompt: minimal vector logo, 1-2 primary colors, flat design, centered composition, plain white background. Only the prompt, no explanation."
+    planner_template: "Output an English image prompt: minimal vector-style logo, 1-2 flat colors, centered on white background, NO text content, NO shadows, NO gradients. Only the prompt, no explanation."
     executor_type: image
     output_handler: image_url
+    size: 512x512
 
   - id: meme
     name: Meme
     creative_prompt: Create a funny, expressive sticker/meme concept.
-    planner_template: "Output an English image prompt: cute sticker style, single character with exaggerated expressive emotion, bold black outline, pure white background, square and centered. Only the prompt, no explanation."
+    planner_template: |
+      Output in this format:
+
+      [IMAGE]
+      English image prompt: cute sticker style, single character with exaggerated expressive emotion, bold black outline, pure white background, square centered. Do NOT embed text in the image.
+
+      [CAPTION]
+      One short funny Chinese caption (max 20 characters)
     executor_type: image
     output_handler: image_url
+    size: 1024x1024
 
   - id: comic
     name: Comic
-    creative_prompt: Create a dramatic single-panel comic/storyboard concept.
-    planner_template: "Output an English image prompt: comic/manga style, bold line art, single panel, dramatic lighting and composition, purely visual storytelling, no text or speech bubbles. Only the prompt, no explanation."
+    creative_prompt: Create a dramatic 4-panel comic strip concept with a mini story arc.
+    planner_template: |
+      Output in this exact format (follow the separator tags strictly):
+
+      [VISUAL]
+      One paragraph in English describing shared visual elements for ALL 4 panels: main character appearance (age/hair/outfit/body type must stay identical), setting/location, time of day/lighting, art style (manga/comic/noir/watercolor), and color palette. This description will be prepended to every panel prompt to enforce visual consistency.
+
+      [PANEL_1]
+      English image prompt: panel 1, story setup / scene establishment
+      [PANEL_2]
+      English image prompt: panel 2, development
+      [PANEL_3]
+      English image prompt: panel 3, twist / conflict
+      [PANEL_4]
+      English image prompt: panel 4, punchline / resolution
+
+      [CAPTION]
+      One short Chinese title or punchline (max 25 characters)
+
+      Important: Do NOT repeat character appearance in each panel prompt — describe only that panel's action, expression, and composition changes. The shared visual context will be automatically prepended.
     executor_type: image
     output_handler: image_url
+    panels: 4
+    size: 768x768
 
   - id: podcast
     name: Podcast
     creative_prompt: Create a podcast episode or audio segment concept.
-    planner_template: "Output a Chinese podcast script (~200-400 characters) ready for voice reading: conversational, vivid, with natural pauses. Only the script, no titles, chapter numbers, or stage directions."
+    planner_template: |
+      Generate a Chinese podcast script that can be read aloud directly. Requirements:
+
+      1. Length: according to episode_length (short ~300 / medium ~800 / long ~1500 chars).
+      2. Style: conversational, vivid, with natural pauses.
+      3. Insert atmosphere markers where appropriate:
+         - [BGM: description] e.g. "[BGM: rain sounds, soft piano]"
+         - [pause 2s] for natural breathing between sections
+      4. Only output the script text (with BGM/pause markers), no titles or explanations.
     executor_type: tts
     output_handler: audio_file
+    episode_length: short
+  - id: novella
+    name: Podcast Medium
+    creative_prompt: Create a richer podcast topic or story, suitable for ~800-char audio.
+    planner_template: |
+      Output a Chinese podcast script (~800 chars), conversational, vivid, with natural pauses. Insert atmosphere markers: [BGM: description], [pause 2s]. Only the script with markers.
+    executor_type: tts
+    output_handler: audio_file
+    episode_length: medium
+  - id: longpod
+    name: Podcast Long
+    creative_prompt: Create a deep podcast topic or long story, suitable for ~1500-char narrative.
+    planner_template: |
+      Output a Chinese podcast script (~1500 chars), conversational and vivid. Insert atmosphere markers: [BGM: description], [pause 2s]. Only the full script.
+    executor_type: tts
+    output_handler: audio_file
+    episode_length: long
 
   - id: video
     name: Video
@@ -132,9 +187,14 @@ modes:
     output_handler: video_file
 
   - id: novel
-    name: Novel
-    creative_prompt: Create a short story concept.
-    planner_template: Output outline + writing requirements.
+    name: Flash Fiction
+    creative_prompt: Create a suspenseful or poetic micro-fiction concept.
+    planner_template: |
+      Output a creative outline for the micro-fiction:
+      [Title] proposed title
+      [POV & Tone] narrative perspective and atmosphere
+      [Plot Outline] story arc and twist
+      [Writing Guide] key imagery and style (300-800 chars)
     executor_type: text
     output_handler: text
 
@@ -155,7 +215,7 @@ modes:
   - id: naming
     name: Naming
     creative_prompt: Create a set of creative, memorable names (for projects/characters/places/items).
-    planner_template: Output 5 names, one per line, format: Name -- one-line meaning or story. Style should match the drawn seeds.
+    planner_template: "Output 5 names, one per line, format: Name -- one-line meaning or story. Style should match the drawn seeds."
     executor_type: text
     output_handler: text
 

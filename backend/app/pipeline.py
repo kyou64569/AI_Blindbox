@@ -18,7 +18,7 @@ from typing import Any
 
 from openai import OpenAI, APITimeoutError
 
-from .config import SETTINGS
+from .config import SETTINGS, get_settings
 
 
 @dataclass
@@ -29,12 +29,13 @@ class BlindBoxResult:
     output: str            # 成品（文本/路径/URL）
     output_kind: str       # text | image_url | video_file | spec_md
     archived: dict | None = None   # 自动归档信息（result json 路径 + 本地成品路径）
-    tts_info: str | None = None   # TTS 实际使用的模型标注（仅播客模式）：如 "Edge TTS（免费）" / "gpt-4o-mini-tts（云端大模型）"
+    tts_info: str | None = None   # TTS 实际使用的模型标注（仅播客模式）
+    caption: str | None = None    # 配文/标题（表情包/漫画等需要文字叠加的模式）
 
 
 def draw_seed() -> str:
     """从 twist pool 随机抽取 per_open_draw 个种子，组合成可复现的 seed 串。"""
-    rnd = SETTINGS.randomness
+    rnd = get_settings().randomness
     if not rnd.get("enabled", True):
         return "seed_fixed"
     n = int(rnd.get("per_open_draw", 2))
@@ -125,13 +126,14 @@ def generate_pool_seed(dim: str, existing: list[str] | None = None) -> str:
             cands = [f"{dim_cn}种子{len(existing) + 1}"]
         return random.choice(cands)
 
-    cfg = SETTINGS.agents.get("creative", {}) or {}
-    g = SETTINGS.global_
+    settings = get_settings()
+    cfg = settings.agents.get("creative", {}) or {}
+    g = settings.global_
     model = cfg.get("model") or g.get("default_model")
     base_url = cfg.get("base_url") or g.get("default_base_url")
     api_key = cfg.get("api_key") or g.get("default_api_key")
 
-    if SETTINGS.mock or not api_key or api_key == "<USER_KEY>":
+    if settings.mock or not api_key or api_key == "<USER_KEY>":
         return _pick_fallback()
 
     system = (
@@ -182,14 +184,15 @@ def _agent_call(agent_key: str, system: str, user: str, mode: dict | None = None
 
     Agent 优先用自己配置的 model/base_url/api_key，留空则回退 global 默认值。
     """
-    cfg = SETTINGS.agents.get(agent_key, {}) or {}
-    g = SETTINGS.global_
+    settings = get_settings()
+    cfg = settings.agents.get(agent_key, {}) or {}
+    g = settings.global_
     model = cfg.get("model") or g.get("default_model", "agnes-free")
     base_url = cfg.get("base_url") or g.get("default_base_url")
     api_key = cfg.get("api_key") or g.get("default_api_key")
     temperature = float(cfg.get("temperature", 0.8))
 
-    if SETTINGS.mock or not api_key or api_key == "<USER_KEY>":
+    if settings.mock or not api_key or api_key == "<USER_KEY>":
         return _mock_agent(agent_key, system, user, mode)
 
     import time
@@ -241,8 +244,11 @@ def _mock_agent(agent_key: str, system: str, user: str, mode: dict | None = None
             return ("STORYBOARD: scene1 establish the glass greenhouse; scene2 the orange cat reveals "
                     "the seed; scene3 memory bloom. style=cinematic, duration=6s")
         if etype in ("text",):
-            return ("OUTLINE: 末日温室中的守护者。\n正文要求：以橘猫为视角，描绘记忆种子的苏醒，"
-                    "语言诗意、克制，约 600 字。")
+            return ("【创作规划与大纲】\n"
+                    "【标题】《末日温室的守护者》\n"
+                    "【视角与基调】第三人称限制视角，语言凝练、冷峻中带着一丝温情\n"
+                    "【核心情节】废弃温室中机械橘猫守护最后一株记忆种子，随着幼苗发光回溯人类曾经的繁荣，最后平静守护。\n"
+                    "【写作指导】注重描写画面中的光影与意象，字数控制在 400-600 字。")
         if etype in ("code-spec", "code-cli"):
             return ("SPEC: 技术栈 Python+FastAPI；目录 src/ tests/；模块：config 加载、pipeline 编排、"
                     "executor 分发；验收：能跑通一次盲盒并返回结构化结果。")
@@ -251,16 +257,17 @@ def _mock_agent(agent_key: str, system: str, user: str, mode: dict | None = None
 
 
 def run_blind_box(mode_id: str, seed: str | None = None) -> BlindBoxResult:
-    mode = SETTINGS.get_mode(mode_id)
+    settings = get_settings()
+    mode = settings.get_mode(mode_id)
     if mode is None:
         raise ValueError(f"未知模式: {mode_id}")
 
     seed = seed or draw_seed()
-    pipeline_mode = SETTINGS.global_.get("pipeline_mode", "standard")
+    pipeline_mode = settings.global_.get("pipeline_mode", "standard")
 
     # 1) 创意 Agent
     creative_prompt = mode.get("creative_prompt", "")
-    creative_sys = SETTINGS.agents.get("creative", {}).get("system_prompt", "")
+    creative_sys = settings.agents.get("creative", {}).get("system_prompt", "")
     concept_in = f"模式要求：{creative_prompt}\n随机种子：{seed}\n请据此生成概念。"
     # 静态图模式：约束概念只描述单帧静态画面，避免承诺「动态/动画/运动」等
     # 成品（图片）根本无法表现的内容，否则会出现「概念卡写动态、成品却是静图」的脱节。
@@ -273,26 +280,31 @@ def run_blind_box(mode_id: str, seed: str | None = None) -> BlindBoxResult:
         )
     concept = _agent_call("creative", creative_sys, concept_in)
 
+    executor_type = mode.get("executor_type", "text")
+
     # 2) 规划 Agent（standard）或直接出结构化（lite）
     if pipeline_mode == "standard":
-        planner_sys = SETTINGS.agents.get("planner", {}).get("system_prompt", "")
-        planner_tpl = mode.get("planner_template", "")
-        plan_in = f"创意概念：\n{concept}\n\n请按以下格式收敛：\n{planner_tpl}"
-        # 把真实时长约束注入规划 prompt，使「规划文案的时长」与「最终成品时长」一致，
-        # 避免此前「文案15秒、成品5秒」的脱节。
-        dur = mode.get("duration_seconds")
-        if dur:
-            plan_in += (
-                f"\n（系统已锁定本视频总时长约为 {dur} 秒，请据此规划分镜与标注，"
-                f"不要自行更改总时长。）"
-            )
-        plan = _agent_call("planner", planner_sys, plan_in, mode=mode)
+        # Text modes (novel, poem, character, naming, puzzle) skip the planner —
+        # the creative agent already produces a complete concept. Running it through
+        # the low-temperature planner would turn it into a degraded outline.
+        if executor_type in ("text",):
+            plan = concept  # pass concept directly as plan, skip the planner
+        else:
+            planner_sys = settings.agents.get("planner", {}).get("system_prompt", "")
+            planner_tpl = mode.get("planner_template", "")
+            plan_in = f"创意概念：\n{concept}\n\n请按以下格式收敛：\n{planner_tpl}"
+            dur = mode.get("duration_seconds")
+            if dur:
+                plan_in += (
+                    f"\n（系统已锁定本视频总时长约为 {dur} 秒，请据此规划分镜与标注，"
+                    f"不要自行更改总时长。）"
+                )
+            plan = _agent_call("planner", planner_sys, plan_in, mode=mode)
     else:
         # lite：让创意 Agent 一段式输出结构化（这里用 mock 时直接复用）
-        plan = concept if SETTINGS.mock else concept
+        plan = concept if settings.mock else concept
 
     # 3) 执行 Agent
-    executor_type = mode.get("executor_type", "text")
     output_kind = mode.get("output_handler", "text")
 
     result = BlindBoxResult(
@@ -314,9 +326,10 @@ def run_blind_box(mode_id: str, seed: str | None = None) -> BlindBoxResult:
 
 def _executor_creds(executor_type: str) -> tuple[str, str, str]:
     """解析执行 Agent 的凭据：executor 自己的配置优先，否则用 providers.<type>，再否则回退 global。"""
-    g = SETTINGS.global_
-    exec_cfg = SETTINGS.agents.get("executor", {}) or {}
-    prov = SETTINGS.providers.get(executor_type, {}) or {}
+    settings = get_settings()
+    g = settings.global_
+    exec_cfg = settings.agents.get("executor", {}) or {}
+    prov = settings.providers.get(executor_type, {}) or {}
 
     model = exec_cfg.get("model") or prov.get("model") or g.get("default_model", "agnes-free")
     base_url = exec_cfg.get("base_url") or prov.get("base_url") or g.get("default_base_url")
@@ -353,11 +366,64 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
     - code-cli：本期仅预留接口。
     """
     if executor_type == "text":
-        return plan
+        model, base_url, api_key = _executor_creds("text")
+        concept = result.concept if result else ""
+        settings = get_settings()
+        if settings.mock or not api_key or api_key == "<USER_KEY>":
+            mode_name = (mode or {}).get("name", "微小说")
+            return (
+                f"【{mode_name}正文成品（Mock）】\n\n"
+                "玻璃穹顶外的酸雨落了整整七个世纪。在这个被废弃的温室中央，机械橘猫的胸膛里正发出微弱的齿轮嗡鸣。\n\n"
+                "它抬起由钛合金与旧时代电路板构成的爪子，小心翼翼地抚过玻璃罩里最后一株发光的记忆幼苗。"
+                "种子在光晕中舒展叶片，映照出人类文明沉睡前的最后景象——那是一片湛蓝的天空与无边无际的麦浪。\n\n"
+                "“我们种下的不是花，是时间。”机械橘猫的音频模块发出沙哑的电子音，随后轻轻合上了光学观测仪。"
+            )
+
+        system_prompt = (
+            "你是一位优秀的主笔小说家。你的任务是根据给定的灵感概念与构思大纲，"
+            "独立创作并撰写一篇语言优美、富有叙事张力和感染力的完整文章/小说正文。"
+            "\n【严禁提示】：\n"
+            "1. 绝对不要在回答中输出“大纲”、“输出大纲”、“正文写作要求”、“标题”等结构标题或编号列表！\n"
+            "2. 绝对不要重复用户给出的规划内容！\n"
+            "3. 必须直接从正文第一句开始创作，只输出小说/文学作品的正文内容本身。"
+        )
+        user_prompt = (
+            f"请根据以下概念与大纲要求，为我创作一篇完整的文学正文（300-800字）：\n\n"
+            f"【故事灵感】：\n{concept}\n\n"
+            + (f"【故事构思与情节要点】：\n{plan}\n\n" if plan.strip() != concept.strip() else "")
+            + "请直接开始撰写正文（切勿输出任何大纲说明）："
+        )
+
+        client = OpenAI(base_url=base_url, api_key=api_key, timeout=90, max_retries=0)
+        
+        for attempt in range(2):
+            resp = client.chat.completions.create(
+                model=model,
+                temperature=0.85,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            content = (resp.choices[0].message.content or "").strip()
+            
+            # 校验：若模型误将大纲原封不动抄回或仍以「输出大纲」开头，自动提示并纠正重试
+            if content == plan.strip() or content.startswith("输出大纲") or content.startswith("**输出大纲**"):
+                if attempt == 0:  # Only modify prompt on first attempt
+                    user_prompt += "\n\n【系统提醒】：上一次回答误输出了大纲。请注意，绝对不要输出大纲或要点，请立刻直接输出完整的小说正文内容！"
+                    continue
+                # Second attempt still failed, proceed to cleanup
+                break
+            return content
+
+        # 若重试后依然带有大纲标记，自动清洗剔除大纲前缀
+        clean_text = re.sub(r"^(?:\*\*|\#\#)?\s*输出大纲[\s\S]*?(?=正文|【正文】|\n\n|\Z)", "", content, flags=re.I).strip()
+        return clean_text or content
 
     if executor_type == "image":
         model, base_url, api_key = _executor_creds("image")
-        if SETTINGS.mock or not api_key or api_key == "<USER_KEY>":
+        settings = get_settings()
+        if settings.mock or not api_key or api_key == "<USER_KEY>":
             return ("[mock 图片 生成占位] 配置好 providers.image 的真实 base_url/api_key/model "
                     f"并关闭 mock 后，将调用图像模型生成图片。\nplan={plan[:80]}")
         # 注意：该共享图像 API 延迟抖动很大（实测 18~50s 常见，偶发 >150s 超时）。
@@ -409,7 +475,8 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
 
     if executor_type == "video":
         model, base_url, api_key = _executor_creds("video")
-        if SETTINGS.mock or not api_key or api_key == "<USER_KEY>":
+        settings = get_settings()
+        if settings.mock or not api_key or api_key == "<USER_KEY>":
             return ("[mock 视频 生成占位] 真实环境将调用 providers.video 的模型。\n"
                     f"plan={plan[:60]}...")
         # Agnes 视频为异步：POST /v1/videos 建任务 → 轮询 GET /agnesapi?video_id= 取结果
@@ -505,10 +572,30 @@ def _run_tts(plan: str, mode: dict[str, Any]) -> tuple[str, str]:
     prov = SETTINGS.providers.get("tts", {}) or {}
     model = (prov.get("model") or "").strip()
     voice = (prov.get("voice") or "").strip()
-    text = (plan or "").strip()
-    if not text:
+    raw_text = (plan or "").strip()
+    if not raw_text:
         return ("[TTS 输入为空，无法合成]", "（无音频）")
-    out_dir = SETTINGS.output_dir
+
+    # Clean TTS text: strip atmosphere markers, convert pauses to actual gaps
+    text = raw_text
+    # 1) Remove BGM markers — they're sound design cues, not spoken content
+    text = re.sub(r'\[BGM\s*[:：][^\]]*\]', '', text, flags=re.I)
+    text = re.sub(r'\[背景音[^\]]*\]', '', text, flags=re.I)
+    # 2) Remove narrator/主持人 markers
+    text = re.sub(r'\[主持人[^\]]*\]', '', text, flags=re.I)
+    # 3) Convert [pause Ns] / [停顿 Ns] to SSML breaks where possible,
+    #    otherwise insert ellipsis pauses
+    # Convert [pause Ns] / [停顿 Ns] to text pauses (comma + ellipsis)
+    # SSML <break> support varies across TTS providers, so we use plain text pauses
+    text = re.sub(
+        r'\[(?:pause|停顿|暂停)\s*(\d+)s?\]',
+        lambda m: ', …' * min(5, max(1, int(m.group(1)) // 2)),
+        text, flags=re.I,
+    )
+    # Collapse consecutive blank lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = text.strip()
+    out_dir = get_settings().output_dir
 
     base_url = (prov.get("base_url") or "").strip()
     api_key = (prov.get("api_key") or "").strip()

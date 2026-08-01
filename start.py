@@ -82,10 +82,11 @@ def main() -> None:
     be_fh = open(backend_log, "wb")
     be_proc = subprocess.Popen(
         [str(VENV_PY), "-m", "uvicorn", "app.main:app",
-         "--host", "127.0.0.1", "--port", "8000", "--reload"],
+         "--host", "127.0.0.1", "--port", "8000"],
         cwd=str(BACKEND_DIR),
         stdout=be_fh,
         stderr=subprocess.STDOUT,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
     log(f"backend PID: {be_proc.pid}")
     time.sleep(3)
@@ -98,6 +99,7 @@ def main() -> None:
         cwd=str(FRONTEND_DIR),
         stdout=fe_fh,
         stderr=subprocess.STDOUT,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
     log(f"frontend PID: {fe_proc.pid}")
     time.sleep(2)
@@ -158,10 +160,11 @@ def main() -> None:
                 be_fh = open(backend_log, "ab")
                 be_proc = subprocess.Popen(
                     [str(VENV_PY), "-m", "uvicorn", "app.main:app",
-                     "--host", "127.0.0.1", "--port", "8000", "--reload"],
+                     "--host", "127.0.0.1", "--port", "8000"],
                     cwd=str(BACKEND_DIR),
                     stdout=be_fh,
                     stderr=subprocess.STDOUT,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
                 )
                 log(f"backend restarted (PID {be_proc.pid})")
             else:
@@ -183,6 +186,7 @@ def main() -> None:
                     cwd=str(FRONTEND_DIR),
                     stdout=fe_fh,
                     stderr=subprocess.STDOUT,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
                 )
                 log(f"frontend restarted (PID {fe_proc.pid})")
             else:
@@ -190,16 +194,21 @@ def main() -> None:
 
     except KeyboardInterrupt:
         log("shutting down...")
-        # Use taskkill /F to ensure the --reload watchdog subprocess is also killed
+        # Kill child process tree: terminate, then force-kill if still alive
         for proc in [fe_proc, be_proc]:
-            try:
-                subprocess.run(
-                    ["taskkill", "/F", "/PID", str(proc.pid)],
-                    capture_output=True, timeout=5,
-                )
-            except Exception:
+            if proc.poll() is None:  # still running
                 try:
                     proc.terminate()
+                except Exception:
+                    pass
+        time.sleep(2)
+        for proc in [fe_proc, be_proc]:
+            if proc.poll() is None:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(proc.pid)],
+                        capture_output=True, timeout=5,
+                    )
                 except Exception:
                     pass
         time.sleep(1)
@@ -210,6 +219,7 @@ def main() -> None:
         # Close file handles
         for fh in [be_fh, fe_fh]:
             try:
+                fh.flush()
                 fh.close()
             except Exception:
                 pass

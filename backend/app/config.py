@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -86,9 +87,17 @@ def load_settings(path: str | Path | None = None) -> Settings:
 
 # 模块级单例（进程内）
 SETTINGS = load_settings()
+_settings_lock = threading.RLock()
+
+
+def get_settings() -> Settings:
+    """Thread-safe getter for the global SETTINGS singleton."""
+    with _settings_lock:
+        return SETTINGS
 
 
 def set_settings(s: "Settings") -> None:
     """热更新全局单例，确保所有引用（pipeline/main）同步。"""
-    global SETTINGS
-    SETTINGS = s
+    with _settings_lock:
+        global SETTINGS
+        SETTINGS = s
