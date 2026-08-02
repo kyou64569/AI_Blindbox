@@ -1,0 +1,28 @@
+Collecting pytest
+  Downloading pytest-9.1.1-py3-none-any.whl.metadata (7.6 kB)
+Requirement already satisfied: colorama>=0.4 in C:\Users\asus\.workbuddy\binaries\python\versions\3.13.12\Lib\site-packages (from pytest) (0.4.6)
+Collecting iniconfig>=1.0.1 (from pytest)
+  Downloading iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting packaging>=22 (from pytest)
+  Downloading packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting pluggy<2,>=1.5 (from pytest)
+  Downloading pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Collecting pygments>=2.7.2 (from pytest)
+  Downloading pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Downloading pytest-9.1.1-py3-none-any.whl (386 kB)
+Downloading pluggy-1.6.0-py3-none-any.whl (20 kB)
+Downloading iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+Downloading packaging-26.2-py3-none-any.whl (100 kB)
+Downloading pygments-2.20.0-py3-none-any.whl (1.2 MB)
+   ---------------------------------------- 1.2/1.2 MB 2.7 MB/s  0:00:00
+Installing collected packages: pygments, pluggy, packaging, iniconfig, pytest
+  WARNING: The script pygmentize.exe is installed in 'C:\Users\asus\.workbuddy\binaries\python\versions\3.13.12\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+  WARNING: The scripts py.test.exe and pytest.exe are installed in 'C:\Users\asus\.workbuddy\binaries\python\versions\3.13.12\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+
+Successfully installed iniconfig-2.3.0 packaging-26.2 pluggy-1.6.0 pygments-2.20.0 pytest-9.1.1
+
+[notice] A new release of pip is available: 26.1.2 -> 26.2
+[notice] To update, run: C:\Users\asus\.workbuddy\binaries\python\versions\3.13.12\python.exe -m pip install --upgrade pip
+RC=0

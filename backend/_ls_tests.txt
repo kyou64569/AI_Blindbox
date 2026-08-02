@@ -1,0 +1,17 @@
+total 65
+drwxr-xr-x 1 asus 197121     0 Aug  2 12:07 .
+drwxr-xr-x 1 asus 197121     0 Aug  2 12:12 ..
+drwxr-xr-x 1 asus 197121     0 Aug  2 11:28 __pycache__
+-rw-r--r-- 1 asus 197121   783 Aug  2 12:02 _qa_cleanup.py
+-rw-r--r-- 1 asus 197121  1402 Aug  2 12:02 _qa_cleanup_log.txt
+-rw-r--r-- 1 asus 197121   854 Aug  2 12:04 _qa_move.py
+-rw-r--r-- 1 asus 197121  1402 Aug  2 12:05 _qa_move_log.txt
+-rw-r--r-- 1 asus 197121   211 Aug  2 11:59 _qa_podcast_out.txt
+-rw-r--r-- 1 asus 197121   758 Aug  2 11:55 _qa_podcast_recheck.py
+-rw-r--r-- 1 asus 197121   745 Aug  2 11:58 _qa_podcast2.py
+-rw-r--r-- 1 asus 197121  1046 Aug  2 12:05 _qa_relocate.py
+-rw-r--r-- 1 asus 197121  1816 Aug  2 12:07 _qa_relocate_log.txt
+-rw-r--r-- 1 asus 197121  3161 Aug  2 11:58 _qa_result.txt
+-rw-r--r-- 1 asus 197121  2003 Aug  2 11:57 _qa_verify_fix.py
+-rw-r--r-- 1 asus 197121 10477 Aug  2 11:48 test_config_fallback.py
+RC=0

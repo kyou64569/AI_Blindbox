@@ -21,6 +21,64 @@ from openai import OpenAI, APITimeoutError
 from .config import SETTINGS, get_settings
 
 
+class FallbackExhausted(Exception):
+    """所有候选模型都调用失败（fallback 链耗尽）。"""
+
+    def __init__(self, ctx: str, last: Exception | None = None):
+        self.ctx = ctx
+        self.last = last
+        super().__init__(f"[fallback 耗尽] {ctx}: {last}")
+
+
+def _resolve_models(section: dict, global_: dict) -> list[dict]:
+    """把某 section 的 models 列表解析为有序凭据列表。
+
+    每张卡片的 base_url/api_key/temperature 为空时回退组级，再回退 global。
+    跳过 model 为空的卡片。返回 [{model, base_url, api_key, temperature}, ...]。
+    """
+    if not isinstance(global_, dict):
+        global_ = {}
+    gb = section.get("base_url")
+    gk = section.get("api_key")
+    gt = section.get("temperature")
+    out: list[dict] = []
+    for card in (section.get("models") or []):
+        if not isinstance(card, dict):
+            continue
+        m = (card.get("model") or "").strip()
+        if not m:
+            continue
+        # 验证 model 名称只包含安全字符
+        if not re.match(r'^[a-zA-Z0-9._+\-]+$', m):
+            continue
+        # 温度回退：卡片 -> 组级 -> global -> 默认 0.8
+        temp = card.get("temperature")
+        if temp is None:
+            temp = gt if gt is not None else 0.8
+        out.append({
+            "model": m,
+            "base_url": card.get("base_url") or gb or global_.get("base_url"),
+            "api_key": card.get("api_key") or gk or global_.get("api_key"),
+            "temperature": temp,
+        })
+    return out
+
+
+def _call_with_fallback(models: list[dict], call_fn, ctx: str = "") -> "Any":
+    """遍历 models 调用 call_fn(creds)。
+
+    仅当 call_fn 抛 Exception 才 fallback 到下一个模型；任一成功即返回（成功即停）；
+    全部失败抛 FallbackExhausted。
+    """
+    last: Exception | None = None
+    for creds in models:
+        try:
+            return call_fn(creds), creds["model"]
+        except Exception as e:  # noqa: BLE001
+            last = e
+    raise FallbackExhausted(ctx, last)
+
+
 @dataclass
 class BlindBoxResult:
     seed: str
@@ -31,6 +89,9 @@ class BlindBoxResult:
     archived: dict | None = None   # 自动归档信息（result json 路径 + 本地成品路径）
     tts_info: str | None = None   # TTS 实际使用的模型标注（仅播客模式）
     caption: str | None = None    # 配文/标题（表情包/漫画等需要文字叠加的模式）
+    image_url: str | None = None  # 角色卡等模式的头像/附图 URL
+    model_used: str | None = None   # 最终产出模型名；mock 模式为 "Mock 模拟"；无模型调用为 None
+    error: str | None = None        # 回退到 mock 的原因（仅 game 等会静默回退的模式）
 
 
 def draw_seed() -> str:
@@ -129,11 +190,11 @@ def generate_pool_seed(dim: str, existing: list[str] | None = None) -> str:
     settings = get_settings()
     cfg = settings.agents.get("creative", {}) or {}
     g = settings.global_
-    model = cfg.get("model") or g.get("default_model")
-    base_url = cfg.get("base_url") or g.get("default_base_url")
-    api_key = cfg.get("api_key") or g.get("default_api_key")
+    models = _resolve_models(cfg, g)
 
-    if settings.mock or not api_key or api_key == "<USER_KEY>":
+    if (settings.mock
+            or not any(c["api_key"] for c in models)
+            or all(c["api_key"] == "<USER_KEY>" for c in models)):
         return _pick_fallback()
 
     system = (
@@ -153,71 +214,63 @@ def generate_pool_seed(dim: str, existing: list[str] | None = None) -> str:
         )
     user = f"请为维度【{dim_cn}】创作一条全新的种子。{forbid_hint}"
 
-    client = OpenAI(base_url=base_url, api_key=api_key, timeout=90, max_retries=0)
-    for _ in range(3):
-        try:
-            resp = client.chat.completions.create(
-                model=model,
-                temperature=0.95,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-            )
-            text = (resp.choices[0].message.content or "").strip()
-            # 清洗：取首行，去引号 / 编号 / 结尾标点
-            text = text.split("\n")[0].strip().strip('"').strip("'").strip("。").strip("、").strip()
-            if not text:
+    def call(creds: dict) -> str:
+        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=90, max_retries=0)
+        for _attempt in range(3):
+            try:
+                resp = client.chat.completions.create(
+                    model=creds["model"],
+                    temperature=creds["temperature"] if creds["temperature"] is not None else 0.95,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                )
+                text = (resp.choices[0].message.content or "").strip()
+                text = text.split("\n")[0].strip().strip('"').strip("'").strip("。").strip("、").strip()
+                if not text:
+                    continue
+                if _seems_anchored(text, existing):
+                    continue
+                return text
+            except Exception:
                 continue
-            # 锚定检测：仍沿用已有意象则重试，否则采用
-            if _seems_anchored(text, existing):
-                continue
-            return text
-        except Exception:
-            continue
-    # 多次仍锚定或调用失败 -> 兜底（内置池已避开 existing，且不含橘猫等锚定意象）
-    return _pick_fallback()
+        raise RuntimeError(f"[seed 生成] model={creds['model']} 多次返回空内容或锚定，触发 fallback")
+
+    out, _used = _call_with_fallback(models, call, ctx=f"generate_pool_seed:{dim}")
+    return out
 
 
 def _agent_call(agent_key: str, system: str, user: str, mode: dict | None = None) -> str:
-    """调用单个文本类 Agent（创意 / 规划）。返回文本。优先真实接口，否则 mock。
+    """调用单个文本类 Agent（创意 / 规划）。返回文本。支持多模型按序 fallback。
 
-    Agent 优先用自己配置的 model/base_url/api_key，留空则回退 global 默认值。
+    模型列表来自该 Agent 的 models 配置；每张卡片的 base_url/api_key/temperature
+    为空时回退组级再到 global。优先真实接口，否则 mock。
     """
     settings = get_settings()
-    cfg = settings.agents.get(agent_key, {}) or {}
+    cfg = settings.agents.get(agent_key) or {}
     g = settings.global_
-    model = cfg.get("model") or g.get("default_model", "agnes-free")
-    base_url = cfg.get("base_url") or g.get("default_base_url")
-    api_key = cfg.get("api_key") or g.get("default_api_key")
-    temperature = float(cfg.get("temperature", 0.8))
+    models = _resolve_models(cfg, g)
 
-    if settings.mock or not api_key or api_key == "<USER_KEY>":
+    if (settings.mock
+            or not any(c["api_key"] for c in models)
+            or all(c["api_key"] == "<USER_KEY>" for c in models)):
         return _mock_agent(agent_key, system, user, mode)
 
-    import time
-    last_err = None
-    for attempt in range(2):
-        try:
-            client = OpenAI(base_url=base_url, api_key=api_key, timeout=90, max_retries=0)
-            resp = client.chat.completions.create(
-                model=model,
-                temperature=temperature,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-            )
-            return (resp.choices[0].message.content or "").strip()
-        except Exception as e:
-            last_err = e
-            if attempt == 0:
-                time.sleep(2)
-                continue
-    raise RuntimeError(
-        f"[{agent_key} Agent 调用失败] model={model}  base_url={base_url}\n"
-        f"错误：{type(last_err).__name__}: {last_err}"
-    )
+    def call(creds: dict) -> str:
+        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=90, max_retries=0)
+        resp = client.chat.completions.create(
+            model=creds["model"],
+            temperature=creds["temperature"] if creds["temperature"] is not None else 0.8,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
+        return (resp.choices[0].message.content or "").strip()
+
+    out, _used = _call_with_fallback(models, call, ctx=f"agent:{agent_key}")
+    return out
 
 
 def _mock_agent(agent_key: str, system: str, user: str, mode: dict | None = None) -> str:
@@ -254,6 +307,104 @@ def _mock_agent(agent_key: str, system: str, user: str, mode: dict | None = None
                     "executor 分发；验收：能跑通一次盲盒并返回结构化结果。")
     # executor mock 占位
     return f"[mock output for {agent_key}]"
+
+
+def _extract_block(text: str, tag: str) -> str:
+    """从结构化输出中提取 `[TAG] ...` 块内容（到下一个 `[TAG]` 或文本结尾）。
+
+    表情包 / 漫画等模式的 planner_template 会产生 `[IMAGE]`、`[CAPTION]` 之类的标签块。
+    对大小写、中英文括号宽容。找不到返回空串。
+    """
+    if not text:
+        return ""
+    pat = re.compile(
+        rf"\[[（(]?\s*{re.escape(tag)}\s*[）)]?\]\s*(.*?)(?=\n\s*\[[^\]\n]*\]|\Z)",
+        re.S | re.I,
+    )
+    m = pat.search(text)
+    if not m:
+        return ""
+    return m.group(1).strip()
+
+
+def _extract_caption(plan: str) -> str | None:
+    """提取表情包 / 漫画规划输出里的 `[CAPTION]` 配文；没有则返回 None。"""
+    block = _extract_block(plan, "CAPTION")
+    return block if block else None
+
+
+# ------------------------------------------------------------------
+# 角色卡辅助
+# ------------------------------------------------------------------
+
+_APPEARANCE_EN: dict[str, str] = {
+    # 发型
+    "短发": "short hair", "长发": "long hair", "马尾": "ponytail", "双马尾": "twintails",
+    "散发": "loose hair", "盘发": "updo", "刘海": "bangs", "中分": "center-parted hair",
+    # 发色
+    "黑发": "black hair", "白发": "white hair", "银发": "silver hair", "金发": "blonde hair",
+    "红发": "red hair", "蓝发": "blue hair", "紫发": "purple hair", "粉发": "pink hair",
+    "绿发": "green hair", "棕发": "brown hair", "灰发": "grey hair",
+    # 眼睛
+    "蓝眼": "blue eyes", "红眼": "red eyes", "紫眼": "purple eyes", "金眼": "golden eyes",
+    "绿眼": "green eyes", "异色瞳": "heterochromia",
+    # 表情
+    "微笑": "smiling", "冷峻": "stoic expression", "温柔": "gentle expression",
+    "严肃": "serious expression", "傲娇": "tsundere expression",
+    "笑": "grinning", "哭": "crying", "怒": "angry expression",
+    # 体型 / 身高
+    "高": "tall", "矮": "short", "瘦": "slim", "胖": "chubby", "肌肉": "muscular",
+    # 服装
+    "校服": "school uniform", "西装": "suit", "长衫": "changshan robe",
+    "盔甲": "armor", "连衣裙": "dress", "卫衣": "hoodie", "风衣": "trench coat",
+    "和服": "kimono", "古装": "traditional chinese clothing", "旗袍": "qipao",
+    "制服": "uniform", "运动服": "sportswear",
+    # 配饰
+    "眼镜": "glasses", "围巾": "scarf", "帽子": "hat", "耳环": "earrings",
+    "项链": "necklace", "手套": "gloves", "翅膀": "wings", "角": "horns",
+    # 种族 / 特征
+    "猫耳": "cat ears", "狐耳": "fox ears", "狼耳": "wolf ears",
+    "尾巴": "tail", "龙角": "dragon horns", "精灵耳": "elf ears",
+}
+
+
+def _translate_appearance(appearance_cn: str) -> str:
+    """把中文外观描述转为英文图片提示词（模板映射 + 原文兜底）。"""
+    text = (appearance_cn or "").strip()
+    if not text:
+        return "anime character portrait, detailed face, upper body, white background"
+
+    translated: list[str] = []
+    remaining = text
+    for cn, en in _APPEARANCE_EN.items():
+        if cn in remaining:
+            translated.append(en)
+            remaining = remaining.replace(cn, "", 1)
+
+    # 去掉中文标点和残留连接词，保留英文已翻译部分 + 原文核心词
+    remaining = re.sub(r"[，、。；：！？\s]+", " ", remaining).strip()
+    if remaining:
+        # 原文中有未匹配的部分，尝试保留（可能含模型可理解的中文拼音/英文）
+        translated.append(remaining)
+
+    base = ", ".join(translated) if translated else text
+    return f"anime portrait, {base}, upper body, detailed face, white background, high quality"
+
+
+def _extract_field(text: str, field_name: str) -> str:
+    """从 `Field: Value` 或 `Field | Value` 格式的结构化文本中提取指定字段值。"""
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # "Name: xxx" 或 "Name | xxx" 或 "【Name】xxx"
+        m = re.match(
+            rf"(?:【|[\[]?\s*){re.escape(field_name)}(?:】|[\]]?\s*)[:\s|]+(.+)",
+            line, re.I,
+        )
+        if m:
+            return m.group(1).strip()
+    return ""
 
 
 def run_blind_box(mode_id: str, seed: str | None = None) -> BlindBoxResult:
@@ -314,7 +465,19 @@ def run_blind_box(mode_id: str, seed: str | None = None) -> BlindBoxResult:
         output="",
         output_kind=output_kind,
     )
-    result.output = _run_executor(executor_type, plan, mode, result)
+
+    # 表情包 / 漫画等结构化模式：规划输出含 [IMAGE] / [CAPTION] 标签块。
+    # 1) 提取 [CAPTION] 配文，单独返回供前端叠加到成品图片上（图片本身不画字）；
+    # 2) 若含 [IMAGE] 块，把纯净的图片提示词传给 image 执行器，避免 [CAPTION] 等
+    #    结构化标签混入提示词、也让图上有内容明确的文字来源。
+    result.caption = _extract_caption(plan)
+    exec_plan = plan
+    if result.caption:
+        img_block = _extract_block(plan, "IMAGE")
+        if img_block:
+            exec_plan = img_block
+
+    result.output = _run_executor(executor_type, exec_plan, mode, result)
     # 4) 自动归档：落盘元数据 + 把易失的远程产物下载到本地
     try:
         result.archived = archive_result(result, mode_id)
@@ -324,17 +487,54 @@ def run_blind_box(mode_id: str, seed: str | None = None) -> BlindBoxResult:
     return result
 
 
-def _executor_creds(executor_type: str) -> tuple[str, str, str]:
-    """解析执行 Agent 的凭据：executor 自己的配置优先，否则用 providers.<type>，再否则回退 global。"""
+def _executor_creds(executor_type: str) -> list[dict]:
+    """解析执行 Agent 的凭据列表（按序 fallback）。
+
+    根据 executor_type 选择正确的模型来源：
+    - image  → providers.image（图片生成模型）
+    - video  → providers.video（视频生成模型）
+    - 其余  → agents.executor（文本 / 代码模型）
+
+    若对应来源为空，则回退到其余来源，最终 global 兜底。
+    """
     settings = get_settings()
     g = settings.global_
-    exec_cfg = settings.agents.get("executor", {}) or {}
-    prov = settings.providers.get(executor_type, {}) or {}
 
-    model = exec_cfg.get("model") or prov.get("model") or g.get("default_model", "agnes-free")
-    base_url = exec_cfg.get("base_url") or prov.get("base_url") or g.get("default_base_url")
-    api_key = exec_cfg.get("api_key") or prov.get("api_key") or g.get("default_api_key")
-    return model, base_url, api_key
+    preferred_key = None
+    if executor_type == "image":
+        preferred_key = "image"
+    elif executor_type == "video":
+        preferred_key = "video"
+
+    # 优先取对应 provider 的模型列表
+    if preferred_key:
+        pv = settings.providers.get(preferred_key) or {}
+        pm = _resolve_models(pv, g)
+        if pm:
+            return pm
+
+    # 回退到 executor Agent 配置
+    exec_cfg = settings.agents.get("executor") or {}
+    exec_models = _resolve_models(exec_cfg, g)
+    if exec_models:
+        return exec_models
+
+    # 仍为空：取另一 provider 置顶项 + global 兜底
+    chain: list[dict] = []
+    for pk in ("image", "video"):
+        if pk == preferred_key:
+            continue
+        pv = settings.providers.get(pk) or {}
+        pm = _resolve_models(pv, g)
+        if pm:
+            chain.append(pm[0])
+    chain.append({
+        "model": g.get("default_model", "agnes-free"),
+        "base_url": g.get("default_base_url"),
+        "api_key": g.get("default_api_key"),
+        "temperature": None,
+    })
+    return chain
 
 
 def _slugify(text: str, max_len: int = 40) -> str:
@@ -366,11 +566,16 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
     - code-cli：本期仅预留接口。
     """
     if executor_type == "text":
-        model, base_url, api_key = _executor_creds("text")
+        models = _executor_creds("text")
         concept = result.concept if result else ""
         settings = get_settings()
-        if settings.mock or not api_key or api_key == "<USER_KEY>":
+        has_key = any(c["api_key"] for c in models) and not all(
+            c["api_key"] == "<USER_KEY>" for c in models
+        )
+        if settings.mock or not has_key:
             mode_name = (mode or {}).get("name", "微小说")
+            if result is not None:
+                result.model_used = "Mock 模拟"
             return (
                 f"【{mode_name}正文成品（Mock）】\n\n"
                 "玻璃穹顶外的酸雨落了整整七个世纪。在这个被废弃的温室中央，机械橘猫的胸膛里正发出微弱的齿轮嗡鸣。\n\n"
@@ -394,99 +599,245 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
             + "请直接开始撰写正文（切勿输出任何大纲说明）："
         )
 
-        client = OpenAI(base_url=base_url, api_key=api_key, timeout=90, max_retries=0)
-        
-        for attempt in range(2):
-            resp = client.chat.completions.create(
-                model=model,
-                temperature=0.85,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+        def call(creds: dict) -> str:
+            client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=90, max_retries=0)
+            # 单模型内部：最多 2 次尝试（含大纲校验），异常或校验不通过则触发跨模型 fallback
+            local_prompt = user_prompt
+            for attempt in range(2):
+                resp = client.chat.completions.create(
+                    model=creds["model"],
+                    temperature=0.85,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": local_prompt},
+                    ],
+                )
+                content = (resp.choices[0].message.content or "").strip()
+                # 校验：若模型误将大纲原封不动抄回或仍以「输出大纲」开头，自动提示并纠正重试
+                if content == plan.strip() or content.startswith("输出大纲") or content.startswith("**输出大纲**"):
+                    if attempt == 0:
+                        local_prompt += "\n\n【系统提醒】：上一次回答误输出了大纲。请注意，绝对不要输出大纲或要点，请立刻直接输出完整的小说正文内容！"
+                        continue
+                    break
+                return content
+            # 同一模型两次都只抄大纲 -> 抛异常触发跨模型 fallback
+            raise RuntimeError(
+                f"[文本执行 Agent] model={creds['model']} 两次均仅返回大纲，内容校验未通过"
             )
-            content = (resp.choices[0].message.content or "").strip()
-            
-            # 校验：若模型误将大纲原封不动抄回或仍以「输出大纲」开头，自动提示并纠正重试
-            if content == plan.strip() or content.startswith("输出大纲") or content.startswith("**输出大纲**"):
-                if attempt == 0:  # Only modify prompt on first attempt
-                    user_prompt += "\n\n【系统提醒】：上一次回答误输出了大纲。请注意，绝对不要输出大纲或要点，请立刻直接输出完整的小说正文内容！"
-                    continue
-                # Second attempt still failed, proceed to cleanup
-                break
-            return content
 
-        # 若重试后依然带有大纲标记，自动清洗剔除大纲前缀
-        clean_text = re.sub(r"^(?:\*\*|\#\#)?\s*输出大纲[\s\S]*?(?=正文|【正文】|\n\n|\Z)", "", content, flags=re.I).strip()
-        return clean_text or content
+        out, used = _call_with_fallback(models, call, ctx="executor:text")
+        if result is not None:
+            result.model_used = used
+        return out
+
+    # ------------------------------------------------------------------
+    # 角色卡：文本模型生成角色设定 → 提取外观 → 图片模型生成动漫头像
+    # ------------------------------------------------------------------
+    if executor_type == "character_card":
+        settings = get_settings()
+        text_models = _executor_creds("text")
+
+        # ---- 1) 文本模型：生成角色设定 ----
+        char_text = plan  # 兜底：若文本模型调用失败，直接用 plan 作为输出
+
+        has_text_key = any(c["api_key"] for c in text_models) and not all(
+            c["api_key"] == "<USER_KEY>" for c in text_models
+        )
+        if not settings.mock and has_text_key:
+            system_prompt = (
+                "你是一位出色的角色设计师。请根据给定的角色概念，"
+                "输出一份结构化的角色设定卡。严格按以下格式，每行一个字段：\n"
+                "Name: 角色名\n"
+                "Appearance: 外观描述（中文，具体到发型/发色/眼睛/体型/服装，越详细越好）\n"
+                "Personality: 性格特征\n"
+                "Backstory: 背景故事\n"
+                "Catchphrase: 经典台词\n"
+                "Hidden Trait: 隐藏特质\n"
+                "\n只输出这六个字段，不要任何解释、标题或多余文字。"
+            )
+            user_prompt = f"请基于以下角色概念，生成结构化的角色设定卡：\n\n{plan}"
+
+            def _char_call(creds: dict) -> str:
+                client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"],
+                                timeout=90, max_retries=0)
+                resp = client.chat.completions.create(
+                    model=creds["model"],
+                    temperature=0.85,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
+                return (resp.choices[0].message.content or "").strip()
+
+            try:
+                char_text, txt_used = _call_with_fallback(
+                    text_models, _char_call, ctx="executor:character_card:text",
+                )
+                if result is not None:
+                    result.model_used = txt_used
+            except FallbackExhausted as e:
+                # 文本模型全部失败，用 plan 兜底，但记录错误原因
+                if result is not None:
+                    result.error = f"角色卡文本生成失败：{e.last if e.last else '所有模型调用失败'}"
+                pass
+
+        # ---- 2) 提取 Appearance 字段 → 翻译为英文图片提示词 ----
+        appearance_cn = _extract_field(char_text, "Appearance")
+        img_prompt = _translate_appearance(appearance_cn)
+
+        # ---- 3) 图片模型：生成动漫头像 ----
+        img_models = _executor_creds("image")
+        has_img_key = any(c["api_key"] for c in img_models) and not all(
+            c["api_key"] == "<USER_KEY>" for c in img_models
+        )
+
+        if settings.mock or not has_img_key:
+            # mock / 无图片 key → 仅返回文字，不阻断
+            if result is not None:
+                result.image_url = None
+                if result.model_used is None:
+                    result.model_used = "Mock 模拟" if settings.mock else None
+            return char_text
+
+        def _img_call(creds: dict) -> str:
+            client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"],
+                            timeout=180, max_retries=0)
+            last_err: Exception | None = None
+            for _attempt in range(3):
+                try:
+                    resp = client.images.generate(
+                        model=creds["model"],
+                        prompt=img_prompt,
+                        size="1024x1024",
+                        n=1,
+                    )
+                    item = resp.data[0]
+                    if getattr(item, "url", None):
+                        return item.url
+                    if getattr(item, "b64_json", None):
+                        import base64
+                        out_dir = SETTINGS.output_dir
+                        img_path = out_dir / f"char_{_slugify(appearance_cn)}_{uuid.uuid4().hex[:6]}.png"
+                        img_path.write_bytes(base64.b64decode(item.b64_json))
+                        return str(img_path)
+                    raise RuntimeError(
+                        f"[角色卡图片生成失败] model={creds['model']} 返回了空的图片数据（无 url / b64_json）"
+                    )
+                except APITimeoutError as e:
+                    last_err = e
+                    time.sleep(3)
+                    continue
+                except Exception as e:
+                    last_err = e
+                    break
+            raise RuntimeError(
+                f"[角色卡图片生成失败] model={creds['model']}\n"
+                f"错误：{type(last_err).__name__}: {last_err}"
+            )
+
+        try:
+            img_out, img_used = _call_with_fallback(
+                img_models, _img_call, ctx="executor:character_card:image",
+            )
+            if result is not None:
+                result.image_url = img_out if img_out else None
+                # 图片模型成功时补充 model_used（文本模型的已设置，这里不覆盖）
+        except FallbackExhausted:
+            # 图片模型全部失败 → 降级为纯文字，不阻断
+            if result is not None:
+                result.image_url = None
+
+        return char_text
 
     if executor_type == "image":
-        model, base_url, api_key = _executor_creds("image")
+        models = _executor_creds("image")
         settings = get_settings()
-        if settings.mock or not api_key or api_key == "<USER_KEY>":
+        has_key = any(c["api_key"] for c in models) and not all(
+            c["api_key"] == "<USER_KEY>" for c in models
+        )
+        if settings.mock or not has_key:
+            if result is not None:
+                result.model_used = "Mock 模拟"
             return ("[mock 图片 生成占位] 配置好 providers.image 的真实 base_url/api_key/model "
                     f"并关闭 mock 后，将调用图像模型生成图片。\nplan={plan[:80]}")
         # 注意：该共享图像 API 延迟抖动很大（实测 18~50s 常见，偶发 >150s 超时）。
         # 因此把单次超时放宽到 180s，并对「超时」做最多 2 次重试；非超时错误
         # （鉴权/参数错误/模型不存在）不重试，直接抛出以暴露真实问题。
         # 总耗时上限约 3×180s=540s，仍在代理层(600s)与前端的兜底超时(580s)之内。
-        client = OpenAI(base_url=base_url, api_key=api_key, timeout=180, max_retries=0)
-        last_err: Exception | None = None
-        for _attempt in range(3):
-            try:
-                resp = client.images.generate(
-                    model=model,
-                    prompt=plan,
-                    size="1024x1024",
-                    n=1,
-                )
-                # 兼容 url / b64_json 两种返回
-                item = resp.data[0]
-                if getattr(item, "url", None):
-                    return item.url
-                if getattr(item, "b64_json", None):
-                    # 存为 D 盘文件（体积较大，落 output，不落 C 盘）
-                    import base64
-                    out_dir = SETTINGS.output_dir
-                    img_path = out_dir / f"{_slugify(plan)}_{uuid.uuid4().hex[:6]}.png"
-                    img_path.write_bytes(base64.b64decode(item.b64_json))
-                    return str(img_path)
-                return "[图片生成返回为空]"
-            except APITimeoutError as e:
-                # 图像 API 延迟尖峰，重试（多数情况下重抽会落回正常区间）
-                last_err = e
-                time.sleep(3)
-                continue
-            except Exception as e:
-                # 鉴权失败 / 参数错误 / 模型不存在等：不重试，直接抛出
-                last_err = e
-                break
-        raise RuntimeError(
-            f"[图片执行 Agent 调用失败] model={model}  base_url={base_url}\n"
-            f"错误：{type(last_err).__name__}: {last_err}\n"
-            "（该图像接口存在明显延迟抖动，属偶发；可直接重试，或临时切 Mock 模式验证链路。）"
-        )
+
+        def call(creds: dict) -> str:
+            client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=180, max_retries=0)
+            last_err: Exception | None = None
+            for _attempt in range(3):
+                try:
+                    resp = client.images.generate(
+                        model=creds["model"],
+                        prompt=plan,
+                        size="1024x1024",
+                        n=1,
+                    )
+                    # 兼容 url / b64_json 两种返回
+                    item = resp.data[0]
+                    if getattr(item, "url", None):
+                        return item.url
+                    if getattr(item, "b64_json", None):
+                        # 存为 D 盘文件（体积较大，落 output，不落 C 盘）
+                        import base64
+                        out_dir = SETTINGS.output_dir
+                        img_path = out_dir / f"{_slugify(plan)}_{uuid.uuid4().hex[:6]}.png"
+                        img_path.write_bytes(base64.b64decode(item.b64_json))
+                        return str(img_path)
+                    raise RuntimeError(
+                        f"[图片执行 Agent] model={creds['model']} 返回了空的图片数据（无 url / b64_json）"
+                    )
+                except APITimeoutError as e:
+                    # 图像 API 延迟尖峰，重试（多数情况下重抽会落回正常区间）
+                    last_err = e
+                    time.sleep(3)
+                    continue
+                except Exception as e:
+                    # 鉴权失败 / 参数错误 / 模型不存在等：不重试，直接抛出
+                    last_err = e
+                    break
+            raise RuntimeError(
+                f"[图片执行 Agent 调用失败] model={creds['model']}  base_url={creds['base_url']}\n"
+                f"错误：{type(last_err).__name__}: {last_err}\n"
+                "注意：图片生成必须使用支持 images/generations 接口的模型（如 DALL·E、Midjourney、Stable Diffusion 等）。"
+                "请确认该模型已配置在「图片模型」（providers.image）中，而非仅配置在 Agent3 执行模型。"
+            )
+
+        out, used = _call_with_fallback(models, call, ctx="executor:image")
+        if result is not None:
+            result.model_used = used
+        return out
 
     if executor_type == "tts":
-        path, info = _run_tts(plan, mode)
+        path, info = _run_tts(plan, mode, result)
         if result is not None:
             result.tts_info = info
         return path
 
     if executor_type == "video":
-        model, base_url, api_key = _executor_creds("video")
+        models = _executor_creds("video")
         settings = get_settings()
-        if settings.mock or not api_key or api_key == "<USER_KEY>":
+        has_key = any(c["api_key"] for c in models) and not all(
+            c["api_key"] == "<USER_KEY>" for c in models
+        )
+        if settings.mock or not has_key:
+            if result is not None:
+                result.model_used = "Mock 模拟"
             return ("[mock 视频 生成占位] 真实环境将调用 providers.video 的模型。\n"
                     f"plan={plan[:60]}...")
-        # Agnes 视频为异步：POST /v1/videos 建任务 → 轮询 GET /agnesapi?video_id= 取结果
-        try:
+
+        def call(creds: dict) -> str:
+            # Agnes 视频为异步：POST /v1/videos 建任务 → 轮询 GET /agnesapi?video_id= 取结果
             import httpx
             from urllib.parse import urlparse
-            parsed = urlparse(base_url)
+            parsed = urlparse(creds["base_url"])
             root = f"{parsed.scheme}://{parsed.netloc}"
-            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-            create_url = base_url.rstrip("/") + "/videos"
+            headers = {"Authorization": f"Bearer {creds['api_key']}", "Content-Type": "application/json"}
+            create_url = creds["base_url"].rstrip("/") + "/videos"
             # 时长由配置驱动：把 duration_seconds 换算成满足「8n+1」约束的 num_frames，
             # 使规划文案里的时长与成品真实时长一致。缺省回退 5 秒（= 原硬编码 121 帧）。
             frame_rate = 24
@@ -503,7 +854,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                     dur, (num_frames - 1) / frame_rate,
                 )
             body = {
-                "model": model,
+                "model": creds["model"],
                 "prompt": plan,
                 "height": 768,
                 "width": 1152,
@@ -523,7 +874,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
             for _ in range(60):
                 time.sleep(5)
                 with httpx.Client(timeout=30) as hc:
-                    pr = hc.get(poll_url, headers={"Authorization": f"Bearer {api_key}"})
+                    pr = hc.get(poll_url, headers={"Authorization": f"Bearer {creds['api_key']}"})
                 if pr.status_code != 200:
                     continue
                 pdata = pr.json()
@@ -536,13 +887,11 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                 if status == "failed":
                     raise RuntimeError(f"视频生成失败：{pdata.get('error')}")
             return f"[视频仍在生成中] 任务 id={vid}，可稍后访问查询：{poll_url}"
-        except RuntimeError:
-            raise
-        except Exception as e:
-            raise RuntimeError(
-                f"[视频执行 Agent 调用失败] model={model}  base_url={base_url}\n"
-                f"错误：{type(e).__name__}: {e}"
-            )
+
+        out, used = _call_with_fallback(models, call, ctx="executor:video")
+        if result is not None:
+            result.model_used = used
+        return out
 
     if executor_type == "code-spec":
         # 生成 spec.md，落到 output 目录（D 盘）
@@ -555,22 +904,325 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
         # 本期仅预留接口，不实现
         return "[预留接口] code-cli 重档本期未实现。"
 
+    if executor_type == "game":
+        return _run_game_executor(plan, mode, result)
+
     return plan
 
 
-def _run_tts(plan: str, mode: dict[str, Any]) -> tuple[str, str]:
+def _extract_html(content: str) -> str:
+    """从模型输出中剥离 ```html ... ``` 围栏，返回纯 HTML 源码；若明显不是 HTML 返回空串。"""
+    c = (content or "").strip()
+    m = re.search(r"```(?:html)?\s*([\s\S]*?)\s*```", c, flags=re.I)
+    if m:
+        c = m.group(1).strip()
+    c = re.sub(r"^```(?:html)?\s*", "", c, flags=re.I)
+    c = re.sub(r"\s*```$", "", c).strip()
+    # 必须是 HTML（含 <html / <!DOCTYPE / <canvas / <script 之一）才视为有效
+    if re.search(r"<!DOCTYPE|<html|<canvas|<script", c, flags=re.I):
+        return c
+    return ""
+
+
+def _mock_game_html(plan: str) -> str:
+    """mock / 无 key / 生成失败时的兜底：产出一份确实可玩的单文件 HTML 小游戏，
+    避免把「需求提示词」误当成品返回（本项目历史 bug 的根因）。
+
+    不同 plan 会产生颜色主题、难度略有差异的变体，避免每次开盒拿到完全相同的 HTML。
+    支持键盘（方向键 / WASD 移动，空格键收集）和鼠标两种操作。
+    """
+    name = "AI 盲盒小游戏"
+    m = re.search(r"【游戏名】\s*([^\n【]+)", plan)
+    if m:
+        name = m.group(1).strip() or name
+
+    # 基于 plan 内容生成不同的游戏参数，避免每次完全相同的 HTML
+    plan_hash = hash(plan) % 100
+    themes = [
+        { "bg": "#0f172a", "player": "#fde047", "star": "#f472b6", "accent": "#38bdf8" },
+        { "bg": "#1a1a2e", "player": "#e94560", "star": "#0f3460", "accent": "#f5a623" },
+        { "bg": "#0d1117", "player": "#f78166", "star": "#7ee787", "accent": "#58a6ff" },
+        { "bg": "#1e1e2e", "player": "#cba6f7", "star": "#a6e3a1", "accent": "#f38ba8" },
+    ]
+    t = themes[plan_hash % len(themes)]
+    star_life = 70 + (plan_hash % 50)       # 70-119
+    spawn_interval = max(20, 35 - plan_hash % 15)  # 20-35
+    speed = 3.5 + (plan_hash % 3)           # 3.5-5.5
+
+    template = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>__TITLE__</title>
+<style>
+  html, body {{ width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: {t['bg']}; color: #e2e8f0; font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }}
+  #wrap {{ width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; box-sizing: border-box; padding: 8px; }}
+  h1 {{ margin: 4px 0 2px; font-size: clamp(14px, 3.5vw, 22px); text-align: center; }}
+  #hud {{ font-size: clamp(11px, 2.8vw, 15px); margin-bottom: 6px; text-align: center; }}
+  #game-box {{ flex: 1 1 auto; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }}
+  #game {{ display: block; background: #000; border-radius: 10px; touch-action: none; cursor: pointer; max-width: 100%; max-height: 100%; }}
+  button {{ margin-top: 8px; padding: 6px 18px; border: 0; border-radius: 8px; background: {t['accent']}; color: #04263a; font-weight: 700; cursor: pointer; font-size: clamp(12px, 2.5vw, 15px); }}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>__TITLE__</h1>
+  <div id="hud">得分：<span id="score">0</span> · 生命：<span id="lives">3</span> · 键盘：方向键/WASD 移动，空格键收集 · 鼠标：点击星星收集</div>
+  <div id="game-box"><canvas id="game"></canvas></div>
+  <button id="reset">重新开始</button>
+</div>
+<script>
+  const cv = document.getElementById('game');
+  const ctx = cv.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const livesEl = document.getElementById('lives');
+  let score = 0, lives = 3;
+  let W = 360, H = 480;
+  const keys = {{}};
+  let player = {{ x: 0, y: 0, r: 14, vx: 0, vy: 0 }};
+  let star = null;
+  let frame = 0;
+  const SPEED = {speed};
+  const STAR_LIFE = {star_life};
+  const SPAWN_INTERVAL = {spawn_interval};
+
+  function resize() {{
+    const box = document.getElementById('game-box');
+    const maxW = box.clientWidth - 4;
+    const maxH = box.clientHeight - 4;
+    let w = maxW, h = Math.round(w * 4 / 3);
+    if (h > maxH) {{ h = maxH; w = Math.round(h * 3 / 4); }}
+    W = w; H = h;
+    cv.width = W; cv.height = H;
+    cv.style.width = W + 'px'; cv.style.height = H + 'px';
+    if (!star) spawn();
+    player.x = Math.min(Math.max(player.r, player.x), W - player.r);
+    player.y = Math.min(Math.max(player.r, player.y), H - player.r);
+  }}
+
+  function spawn() {{
+    const margin = 30;
+    star = {{
+      x: margin + Math.random() * (W - margin * 2),
+      y: margin + Math.random() * (H - margin * 2),
+      r: Math.max(10, Math.min(W, H) * 0.045),
+      life: STAR_LIFE,
+      maxLife: STAR_LIFE,
+    }};
+  }}
+
+  function update() {{
+    frame++;
+    // 键盘输入
+    player.vx = (player.vx || 0);
+    player.vy = (player.vy || 0);
+    if (keys['ArrowLeft'] || keys['a'] || keys['A']) player.vx = -SPEED;
+    else if (keys['ArrowRight'] || keys['d'] || keys['D']) player.vx = SPEED;
+    else player.vx = 0;
+    if (keys['ArrowUp'] || keys['w'] || keys['W']) player.vy = -SPEED;
+    else if (keys['ArrowDown'] || keys['s'] || keys['S']) player.vy = SPEED;
+    else player.vy = 0;
+    // 斜向速度归一化
+    if (player.vx !== 0 && player.vy !== 0) {{
+      const k = 1 / Math.sqrt(2);
+      player.vx *= k; player.vy *= k;
+    }}
+    player.x += player.vx;
+    player.y += player.vy;
+    player.x = Math.min(Math.max(player.r, player.x), W - player.r);
+    player.y = Math.min(Math.max(player.r, player.y), H - player.r);
+
+    // 星星生命周期
+    if (star) {{
+      star.life--;
+      if (star.life <= 0) {{
+        star = null;
+        lives = Math.max(0, lives - 1);
+        livesEl.textContent = lives;
+        if (lives <= 0) {{
+          alert('游戏结束！得分：' + score);
+          score = 0; lives = 3;
+          scoreEl.textContent = score;
+          livesEl.textContent = lives;
+        }}
+      }}
+    }}
+    // 自动刷新星星
+    if (!star && frame % SPAWN_INTERVAL === 0) spawn();
+
+    // 碰撞检测（键盘 / 鼠标通用）
+    if (star) {{
+      const dx = player.x - star.x, dy = player.y - star.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < player.r + star.r - 2) {{
+        score++;
+        scoreEl.textContent = score;
+        star = null;
+      }}
+    }}
+  }}
+
+  function draw() {{
+    ctx.clearRect(0, 0, W, H);
+    // 星星
+    if (star) {{
+      const alpha = 0.35 + 0.65 * (star.life / star.maxLife);
+      ctx.globalAlpha = Math.max(0.2, alpha);
+      ctx.fillStyle = '{t['star']}';
+      ctx.beginPath();
+      ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }}
+    // 玩家
+    ctx.fillStyle = '{t['player']}';
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+    ctx.fill();
+    // 边框
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }}
+
+  // 键盘
+  window.addEventListener('keydown', e => {{
+    keys[e.key] = true;
+    if (e.key === ' ' || e.code === 'Space') e.preventDefault();
+  }});
+  window.addEventListener('keyup', e => {{ keys[e.key] = false; }});
+
+  // 鼠标 / 触摸：点击画布时把玩家瞬移到点击位置（简化操作）
+  cv.addEventListener('pointerdown', e => {{
+    const r = cv.getBoundingClientRect();
+    player.x = (e.clientX - r.left) * (cv.width / r.width);
+    player.y = (e.clientY - r.top) * (cv.height / r.height);
+    player.x = Math.min(Math.max(player.r, player.x), W - player.r);
+    player.y = Math.min(Math.max(player.r, player.y), H - player.r);
+  }});
+
+  document.getElementById('reset').onclick = () => {{
+    score = 0; lives = 3; star = null; frame = 0;
+    scoreEl.textContent = score; livesEl.textContent = lives;
+    player.x = W / 2; player.y = H - 40; spawn();
+  }};
+  window.addEventListener('resize', resize);
+  resize();
+  player.x = W / 2; player.y = H - 40;
+  spawn();
+  (function loop() {{ update(); draw(); requestAnimationFrame(loop); }})( );
+</script>
+</body>
+</html>"""
+    return template.replace("__TITLE__", name)
+
+
+def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = None) -> str:
+    """小游戏模式：基于规划出的游戏需求(plan)，用代码模型生成一份可直接在浏览器运行的
+    单文件 HTML5 小游戏（HTML+CSS+JS 内联），落盘 output/ 并返回绝对路径。支持多模型按序 fallback。
+
+    - 真实环境：调用 executor Agent（代码模型）按严格 system 指令产出完整、可玩的 HTML；
+      解析时剥离 ```html 围栏，确保落盘的是纯 HTML。单模型内部重试 2 次属于「单模型内部重试」，
+      与跨模型 fallback 是两回事——跨模型交给 _call_with_fallback。
+    - mock / 无 key / 所有模型均失败：落一份内置的、确实可玩的占位小游戏，保证开盒不中断、
+      且不再把「需求提示词」误当成品。
+    """
+    out_dir = SETTINGS.output_dir
+    slug = _slugify(plan, max_len=40)
+
+    settings = get_settings()
+    models = _executor_creds("game")
+
+    def _save(html: str) -> str:
+        dest = out_dir / f"game_{slug}_{uuid.uuid4().hex[:6]}.html"
+        dest.write_text(html, encoding="utf-8")
+        return str(dest)
+
+    has_key = any(c["api_key"] for c in models) and not all(
+        c["api_key"] == "<USER_KEY>" for c in models
+    )
+    if settings.mock or not has_key:
+        # mock / 无 key：直接落占位可玩游戏
+        if result is not None:
+            result.model_used = "Mock 模拟"
+        return _save(_mock_game_html(plan))
+
+    system_prompt = (
+        "你是一位资深前端游戏工程师。请基于给定的小游戏需求，产出一份"
+        "【完整、可直接在浏览器打开即玩】的单文件 HTML5 小游戏。\n"
+        "【硬性要求】：\n"
+        "1. 只输出一个 HTML 文件，内含 <style> 与 <script>，不要任何外部依赖（不引用 cdn / 图片 / 字体文件）。\n"
+        "2. 游戏必须真实可玩：有清晰目标、可操作的玩法（鼠标点击 / 键盘均可）、计分或胜负判定、重新开始按钮。\n"
+        "3. 使用 Canvas 或纯 DOM 均可，画面美观、配色符合需求里的风格描述。\n"
+        "4. 代码必须自包含、无语法错误、无未定义变量，打开即可运行。\n"
+        "5. 中文界面（标题、提示、得分、按钮均用中文）。\n"
+        "6. 绝对不要输出任何解释、不要 Markdown 标题、不要把代码包在 ```html 围栏里——直接输出 HTML 源码本身。\n"
+        "7. 游戏页面必须完全自适应 iframe 容器，不得出现滚动条：html/body 必须 100% 宽高、overflow:hidden；"
+        "所有 UI 元素必须使用相对单位或根据窗口 resize 动态计算，确保在 360×420 到全屏之间都能完整显示且不溢出。\n"
+    )
+    user_prompt = (
+        f"请基于以下小游戏需求，生成完整可玩的单文件 HTML5 小游戏源码：\n\n{plan}\n\n"
+        "（请直接开始输出 <!DOCTYPE html>，不要任何前后缀说明。）"
+    )
+
+    def call(creds: dict) -> str:
+        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=180, max_retries=0)
+        # 单模型内部：最多 2 次尝试（内容为空则重试），异常或仍无 HTML 则触发跨模型 fallback
+        last_err: Exception | None = None
+        for attempt in range(2):
+            try:
+                resp = client.chat.completions.create(
+                    model=creds["model"],
+                    temperature=0.7,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
+                content = (resp.choices[0].message.content or "").strip()
+                html = _extract_html(content)
+                if html:
+                    return _save(html)
+                last_err = RuntimeError("模型未返回可用的 HTML 内容")
+                if attempt == 0:
+                    time.sleep(2)
+                    continue
+                break
+            except Exception as e:
+                last_err = e
+                if attempt == 0:
+                    time.sleep(2)
+                    continue
+                break
+        # 该模型两次均失败 -> 抛异常触发跨模型 fallback
+        raise RuntimeError(f"game 模型 {creds['model']} 生成失败: {last_err}")
+
+    # 所有模型都失败 -> 落一份占位可玩游戏，保证开盒不中断
+    try:
+        out, used = _call_with_fallback(models, call, ctx="executor:game")
+        if result is not None:
+            result.model_used = used
+        return out
+    except FallbackExhausted:
+        if result is not None:
+            result.model_used = "Mock 模拟"
+        return _save(_mock_game_html(plan))
+
+
+def _run_tts(plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = None) -> tuple[str, str]:
     """文本转语音：把规划出的播客台词合成为音频文件，落盘 output/ 并返回 (绝对路径, 使用信息)。
 
     路由规则（不再有 engine 字段，纯由凭据决定）：
     - 未同时配置 base_url 与 api_key → 免费 Edge TTS（无需 Key，需联网到微软端点）。
-    - 同时配置了 base_url 与 api_key → 走云端 OpenAI 兼容大模型，使用 providers.tts.model
-      指定的模型名（任意兼容 /v1/audio/speech 的厂商均可，不限品牌）。
+    - 同时配置了 base_url 与 api_key → 遍历 providers.tts.models（按序 fallback）走云端
+      OpenAI 兼容大模型（models 为空则直接回退 Edge）。每张卡片的 base_url/api_key
+      为空时回退组级再到 global；voice 仍为组级共用字段（卡片不单独配 voice）。
       云端容错链：① 用配置的音色（未配置则用通用默认 alloy）② 指定音色出错则去掉 voice
       字段再调一次（依赖厂商默认音色）③ 仍失败才自动回退到免费 Edge TTS，保证开盒不中断。
     「使用信息」会在结果/历史中标注实际使用的模型，便于溯源。
     """
     prov = SETTINGS.providers.get("tts", {}) or {}
-    model = (prov.get("model") or "").strip()
     voice = (prov.get("voice") or "").strip()
     raw_text = (plan or "").strip()
     if not raw_text:
@@ -601,6 +1253,53 @@ def _run_tts(plan: str, mode: dict[str, Any]) -> tuple[str, str]:
     api_key = (prov.get("api_key") or "").strip()
     has_cloud_creds = bool(base_url and api_key)
 
+    # Mock 模式短路：与 text/image/video/game 四个 executor 对齐，离线返回占位音频，
+    # 不触发任何真实云端调用，也不回退到需要联网的免费 Edge TTS（避免 mock 模式下仍产生
+    # 真实网络/费用依赖）。写入一份本地静音占位音频文件并返回其路径 + 标注。
+    if get_settings().mock:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        dest = out_dir / f"podcast_mock_{_slugify(text)}_{uuid.uuid4().hex[:6]}.wav"
+        try:
+            import wave
+            with wave.open(str(dest), "w") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)          # 16-bit PCM
+                w.setframerate(16000)
+                n_frames = int(16000 * 0.4)  # 0.4s 静音占位
+                w.writeframes(b"\x00\x00" * n_frames)
+        except Exception:
+            # wave 模块写入失败，尝试手动写入一份合法 WAV 文件
+            try:
+                sr = 16000
+                n_frames = int(sr * 0.4)
+                data_size = n_frames * 2
+                header = (
+                    b'RIFF'
+                    + (data_size + 36).to_bytes(4, 'little')
+                    + b'WAVE'
+                    + b'fmt '
+                    + (16).to_bytes(4, 'little')
+                    + (1).to_bytes(2, 'little')
+                    + (1).to_bytes(2, 'little')
+                    + sr.to_bytes(4, 'little')
+                    + (sr * 2).to_bytes(4, 'little')
+                    + (2).to_bytes(2, 'little')
+                    + (2).to_bytes(2, 'little')
+                    + b'data'
+                    + data_size.to_bytes(4, 'little')
+                    + b'\x00\x00' * n_frames
+                )
+                dest.write_bytes(header)
+            except Exception as e2:
+                # 两份写入均失败 -> 返回空路径，前端将回退显示文本而非 404 音频
+                if result is not None:
+                    result.model_used = "Mock 模拟"
+                    result.error = f"TTS 静音音频写入失败：{type(e2).__name__}"
+                return ("", "（Mock）TTS 占位（静音音频写入失败，未调用真实 TTS）")
+        if result is not None:
+            result.model_used = "Mock 模拟"
+        return (str(dest), "（Mock）静音占位音频 · 未调用真实 TTS / Edge")
+
     def _edge(voice_name: str) -> Path:
         import asyncio
         import edge_tts
@@ -620,19 +1319,19 @@ def _run_tts(plan: str, mode: dict[str, Any]) -> tuple[str, str]:
             raise
         return dest
 
-    def _cloud_request_omit_voice() -> bytes:
+    def _cloud_request_omit_voice(creds: dict) -> bytes:
         """直接发不含 voice 字段的请求，依赖厂商默认音色（部分 OpenAI 兼容厂商支持）。"""
         import json
         import urllib.request
 
-        url = base_url.rstrip("/") + "/audio/speech"
-        payload = {"model": model, "input": text}
+        url = (creds.get("base_url") or "").rstrip("/") + "/audio/speech"
+        payload = {"model": creds.get("model"), "input": text}
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             url,
             data=data,
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {creds['api_key']}",
                 "Content-Type": "application/json",
             },
             method="POST",
@@ -640,14 +1339,15 @@ def _run_tts(plan: str, mode: dict[str, Any]) -> tuple[str, str]:
         with urllib.request.urlopen(req, timeout=120) as r:
             return r.read()
 
-    def _cloud() -> Path:
+    def _cloud_one(creds: dict) -> "Path":
+        model = (creds.get("model") or "").strip()
         if not model:
             raise RuntimeError(
-                "云端 TTS 未配置 model（已填写 base_url/api_key，请在 providers.tts.model "
+                "云端 TTS 未配置 model（已填写 base_url/api_key，请在 providers.tts.models[].model "
                 "填写模型名，如 gpt-4o-mini-tts）"
             )
         dest = out_dir / f"podcast_{_slugify(text)}_{_slugify(model)}_{uuid.uuid4().hex[:6]}.mp3"
-        client = OpenAI(base_url=base_url, api_key=api_key, timeout=120, max_retries=1)
+        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=120, max_retries=1)
         # ① 第一发：用配置的音色（未配置则用通用默认 alloy）
         try:
             resp = client.audio.speech.create(model=model, voice=voice or "alloy", input=text)
@@ -661,7 +1361,7 @@ def _run_tts(plan: str, mode: dict[str, Any]) -> tuple[str, str]:
                 flush=True,
             )
             try:
-                data = _cloud_request_omit_voice()
+                data = _cloud_request_omit_voice(creds)
                 dest.write_bytes(data)
                 return dest
             except Exception as e2:
@@ -684,24 +1384,42 @@ def _run_tts(plan: str, mode: dict[str, Any]) -> tuple[str, str]:
             raise RuntimeError(
                 f"[TTS 执行失败] engine=Edge TTS（免费）\n错误：{type(e).__name__}: {e}"
             )
+        if result is not None:
+            result.model_used = "Edge TTS"
         return (str(dest), "Edge TTS（免费·本地无需 Key）")
 
-    # 有凭据 → 尝试云端；调用出错自动回退 Edge（不中断开盒）
+    # 有凭据 → 遍历 models 按序 fallback；全部失败自动回退 Edge（不中断开盒）
+    models = _resolve_models(prov, get_settings().global_)
+    if not models:
+        try:
+            dest = _edge("zh-CN-XiaoxiaoNeural")
+        except Exception as e2:
+            raise RuntimeError(
+                f"[TTS 执行失败] 云端无可用 model 且回退 Edge 失败\n"
+                f"Edge 错误：{type(e2).__name__}: {e2}"
+            )
+        if result is not None:
+            result.model_used = "Edge TTS"
+        return (str(dest), "Edge TTS（云端无可用 model，已回退·免费）")
     try:
-        dest = _cloud()
-        return (str(dest), f"{model}（云端大模型）")
-    except Exception as e:
+        dest, used = _call_with_fallback(models, _cloud_one, ctx="tts")
+        if result is not None:
+            result.model_used = used
+        return (str(dest), f"{used}（云端大模型）")
+    except FallbackExhausted as e:
         # 诊断：把云端真实报错打到后端日志，便于排查（不再只显示“调用失败”）
-        print(f"[TTS-WARN] 云端 TTS({model}) 调用失败：{type(e).__name__}: {e}", flush=True)
+        print(f"[TTS-WARN] 云端 TTS 全部模型失败，回退 Edge：{e}", flush=True)
         try:
             dest = _edge("zh-CN-XiaoxiaoNeural")
         except Exception as e2:
             raise RuntimeError(
                 f"[TTS 执行失败] 云端与回退 Edge 均失败\n"
-                f"云端错误：{type(e).__name__}: {e}\n"
+                f"fallback 错误：{e}\n"
                 f"Edge 错误：{type(e2).__name__}: {e2}"
             )
-        return (str(dest), f"Edge TTS（云端 {model} 调用失败，已自动回退·免费）")
+        if result is not None:
+            result.model_used = "Edge TTS"
+        return (str(dest), "Edge TTS（云端调用失败，已自动回退·免费）")
 
 
 # ---------------------------------------------------------------------------
@@ -750,7 +1468,7 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
     local_file: str | None = None
     output_val = result.output
     # 已是本地绝对路径文件（spec md / base64 图片 png）
-    if Path(output_val).is_absolute():
+    if isinstance(output_val, str) and Path(output_val).is_absolute():
         as_path = Path(output_val)
         if as_path.exists() and output_val != str(out_dir):
             try:
@@ -796,6 +1514,9 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
         "output": result.output,
         "output_kind": result.output_kind,
         "tts_info": result.tts_info,
+        "model_used": result.model_used,
+        "caption": result.caption,
+        "image_url": result.image_url,
         "local_file": local_file,
     }
     json_path = out_dir / f"result_{_slugify(result.concept, max_len=30)}_{rid}.json"

@@ -1,0 +1,15 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\asus\.workbuddy\binaries\python\versions\3.13.12\python.exe
+cachedir: .pytest_cache
+rootdir: D:\work\AI_Blindbox\backend
+plugins: anyio-4.14.2
+collecting ... collected 5 items
+
+tests/test_config_fallback.py::test_load_settings_migration PASSED       [ 20%]
+tests/test_config_fallback.py::test_resolve_models_fallback PASSED       [ 40%]
+tests/test_config_fallback.py::test_call_with_fallback PASSED            [ 60%]
+tests/test_config_fallback.py::test_executor_creds_empty_chain PASSED    [ 80%]
+tests/test_config_fallback.py::test_run_tts_cloud_fail_fallback_edge PASSED [100%]
+
+============================== 5 passed in 1.65s ==============================
+EXIT=0

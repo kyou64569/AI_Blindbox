@@ -1,0 +1,542 @@
+
+    // 依赖缺失时给出明确提示，避免白屏
+    if (typeof preact === "undefined" || typeof htm === "undefined" || typeof preactHooks === "undefined") {
+      document.getElementById("root").innerHTML =
+        '<p style="color:#e24b4a;padding:24px">前端依赖未加载：请确认 frontend/vendor/ 下的 preact.umd.js、htm.umd.js、preact-hooks.umd.js 存在。</p>';
+      throw new Error("vendor missing");
+    }
+    const { h, render } = preact;
+    const { useState, useEffect, useRef } = preactHooks;
+    const html = htm.bind(h);
+
+    function App() {
+      const [tab, setTab] = useState("box");
+      const [modes, setModes] = useState([]);
+      const [selected, setSelected] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [result, setResult] = useState(null);
+      const [error, setError] = useState(null);
+      const [config, setConfig] = useState(null);
+      const [paths, setPaths] = useState({});
+      const [saved, setSaved] = useState(false);
+      const [poolUI, setPoolUI] = useState({ addText: {}, gen: {}, genErr: {} });
+      const initialPoolRef = useRef(null);
+      const [voices, setVoices] = useState({ edge: [], cloud: [], current: "" });
+      const [history, setHistory] = useState([]);
+      const [histLoading, setHistLoading] = useState(false);
+      const [histError, setHistError] = useState(null);
+      const [expandedId, setExpandedId] = useState(null);
+
+      useEffect(() => {
+        fetch("/api/modes").then(r => r.json()).then(d => {
+          setModes(d.modes || []);
+          if (d.modes && d.modes.length) setSelected(d.modes[0].id);
+        }).catch(e => setError("加载模式失败: " + e.message));
+        fetch("/api/config").then(r => r.json()).then(d => {
+          setConfig(d.config); setPaths(d.paths || {});
+          if (initialPoolRef.current === null) initialPoolRef.current = d.config?.randomness?.pool || {};
+        }).catch(() => {});
+        // Load available TTS voices
+        fetch("/api/tts/voices").then(r => r.json()).then(d => {
+          setVoices({ edge: d.edge || [], cloud: d.cloud || [], current: d.current || "" });
+        }).catch(() => {});
+      }, []);
+
+      const runOpen = async (modeId, seed) => {
+        const m = modeId || selected;
+        if (!m) return;
+        setLoading(true); setError(null);
+        const ctrl = new AbortController();
+        // 兜底超时 9分40秒（略小于代理层的 10 分钟），避免极端情况下请求永久挂起
+        const timer = setTimeout(() => ctrl.abort(), 720000);
+        try {
+          const resp = await fetch("/api/open", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(seed ? { mode: m, seed } : { mode: m }),
+            signal: ctrl.signal,
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || "开盲盒失败");
+          setResult(data);
+        } catch (e) {
+          if (e.name === "AbortError") {
+            setError("请求超时：生成任务耗时较长（漫画/视频等复杂内容需要较长时间），请稍后重试。");
+          } else if (e.message === "Failed to fetch") {
+            setError("与服务器连接中断（长连接可能被网络/代理重置）。请确认前后端服务正常后重试。");
+          } else {
+            setError("开盲盒失败: " + e.message);
+          }
+        } finally {
+          clearTimeout(timer);
+          setLoading(false);
+        }
+      };
+      const openBox = () => runOpen(selected);
+
+      const modeName = (id) => (modes.find(m => m.id === id)?.name || id || "");
+
+      // 解析图片/视频成品的可渲染地址：
+      // 归档后后端会把 output 改写为本地相对文件名（如 asset_xxx.png，无 /output/ 前缀），
+      // 此时必须读取 archived.local_file 并补 /output/ 前缀；否则就当纯文本显示。
+      const mediaSrc = (r) => {
+        if (!r) return null;
+        if (r.archived && r.archived.local_file) return "/output/" + r.archived.local_file;
+        const o = r.output || "";
+        if (/^https?:\/\//.test(o) || o.startsWith("/output/")) return o;
+        // 裸相对文件名（output 目录内）——自动补 /output/ 也能渲染
+        if (o && !/^[a-zA-Z]:[\\/]/.test(o) && !o.startsWith("/")) return "/output/" + o;
+        return null; // 无法渲染 -> 退回纯文本
+      };
+      const loadHistory = async () => {
+        setHistLoading(true); setHistError(null);
+        try {
+          const resp = await fetch("/api/history?limit=100");
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || "加载历史失败");
+          setHistory(data.items || []);
+        } catch (e) { setHistError("加载历史失败: " + e.message); }
+        finally { setHistLoading(false); }
+      };
+
+      const save = async () => {
+        setError(null);
+        try {
+          const resp = await fetch("/api/config", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ config }),
+          });
+          if (!resp.ok) throw new Error("保存失败");
+          setSaved(true);
+          // Reload voices after save to reflect the new config
+          fetch("/api/tts/voices").then(r => r.json()).then(d => {
+            setVoices({ edge: d.edge || [], cloud: d.cloud || [], current: d.current || "" });
+          }).catch(() => {});
+        } catch (e) { setError("保存失败: " + e.message); }
+      };
+
+      const update = (path, value) => {
+        setConfig(prev => {
+          const next = JSON.parse(JSON.stringify(prev));
+          let node = next; const keys = path.split(".");
+          for (let i = 0; i < keys.length - 1; i++) node = node[keys[i]];
+          node[keys[keys.length - 1]] = value; return next;
+        });
+        setSaved(false);
+      };
+
+      // ---- twist pool 编辑器（推荐混合方案：4 维可手动增删改 + 🎲 大模型生成） ----
+      const poolDims = ["theme", "style", "constraint", "twist"];
+      const dimCn = { theme: "主题", style: "风格", constraint: "约束", twist: "反转" };
+      const getPool = (dim) => (config?.randomness?.pool?.[dim] || []);
+
+      const editItem = (dim, idx, val) => {
+        const arr = [...getPool(dim)];
+        arr[idx] = val;
+        update(`randomness.pool.${dim}`, arr);
+      };
+      const removeItem = (dim, idx) => {
+        update(`randomness.pool.${dim}`, getPool(dim).filter((_, i) => i !== idx));
+      };
+      const addItem = (dim) => {
+        const v = (poolUI.addText?.[dim] || "").trim();
+        if (!v) return;
+        if (getPool(dim).includes(v)) {  // 去重校验
+          setPoolUI(s => ({ ...s, addText: { ...s.addText, [dim]: "" } }));
+          return;
+        }
+        update(`randomness.pool.${dim}`, [...getPool(dim), v]);
+        setPoolUI(s => ({ ...s, addText: { ...s.addText, [dim]: "" } }));
+      };
+      const genSeed = async (dim) => {
+        setPoolUI(s => ({ ...s, gen: { ...s.gen, [dim]: true }, genErr: { ...s.genErr, [dim]: null } }));
+        try {
+          const resp = await fetch("/api/generate-seed", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dimension: dim, existing: getPool(dim) }),
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || "生成失败");
+          const v = (data.seed || "").trim();
+          if (!v) throw new Error("模型返回为空");
+          if (!getPool(dim).includes(v)) update(`randomness.pool.${dim}`, [...getPool(dim), v]);
+        } catch (e) {
+          setPoolUI(s => ({ ...s, genErr: { ...s.genErr, [dim]: e.message } }));
+        } finally {
+          setPoolUI(s => ({ ...s, gen: { ...s.gen, [dim]: false } }));
+        }
+      };
+      const resetPool = () => {
+        if (initialPoolRef.current) update("randomness.pool", JSON.parse(JSON.stringify(initialPoolRef.current)));
+      };
+
+      // 每个模型槽位的「获取模型列表」状态：以 basePath 为 key 存 {models, fetching, err}
+      const [slotState, setSlotState] = useState({});
+      const fetchModels = async (basePath, keyMap) => {
+        setSlotState(s => ({ ...s, [basePath]: { ...(s[basePath]||{}), fetching: true, err: null } }));
+        try {
+          // 嵌套解析 basePath（如 "agents.creative"），避免 config["agents.creative"] 直接索引为 undefined
+          const resolve = (path, obj) => path.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), obj) || {};
+          const node = resolve(basePath, config);
+          const body = {
+            base_url: node[keyMap.base_url] || config.global?.default_base_url || "",
+            api_key: node[keyMap.api_key] || config.global?.default_api_key || "",
+          };
+          const resp = await fetch("/api/models", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || "获取失败");
+          setSlotState(s => ({ ...s, [basePath]: { models: data.models || [], fetching: false, err: null } }));
+        } catch (e) {
+          setSlotState(s => ({ ...s, [basePath]: { ...(s[basePath]||{}), fetching: false, err: e.message } }));
+        }
+      };
+
+      // 渲染一个模型配置组（base_url + api_key + 模型下拉/手填）
+      const renderModelSlot = ({ title, basePath, keyMap, config, update }) => {
+        // 嵌套解析 basePath（如 "agents.creative"），避免 config["agents.creative"] 直接索引为 undefined
+        const node = basePath.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), config) || {};
+        const st = slotState[basePath] || {};
+        const listId = "models-" + basePath.replace(/\./g, "-");
+        const getv = k => node[keyMap[k]] || "";
+        const setv = (k, v) => update(basePath + "." + keyMap[k], v);
+        return html`
+          <div class="section-title">${title}</div>
+          <div class="config-form">
+            <div class="form-row"><label>API Base URL</label>
+              <input value=${getv("base_url")} onInput=${e => setv("base_url", e.target.value)} placeholder="留空=用全局默认" /></div>
+            <div class="form-row"><label>API Key</label>
+              <input type="password" value=${getv("api_key")} onInput=${e => setv("api_key", e.target.value)} placeholder="留空=用全局默认" /></div>
+            <div class="form-row"><label>模型 model（填好上方 base_url / key 后可点按钮拉取列表选择）</label>
+              <div style=${{display:"flex", gap:"8px"}}>
+                <input list=${listId} value=${getv("model")} placeholder="留空=用全局默认；或从下拉选 / 手填"
+                  onInput=${e => setv("model", e.target.value)} style=${{flex:1}} />
+                <datalist id=${listId}>
+                  ${(st.models||[]).map(m => html`<option key=${m} value=${m} />`)}
+                </datalist>
+                <button type="button" class="save-btn" style=${{padding:"8px 12px", whiteSpace:"nowrap"}}
+                  disabled=${st.fetching} onClick=${() => fetchModels(basePath, keyMap)}>
+                  ${st.fetching ? "获取中…" : "获取模型列表"}
+                </button>
+              </div>
+              ${(st.models||[]).length > 0 && html`<div class="note">已获取 ${st.models.length} 个模型，点输入框可下拉选择。</div>`}
+              ${st.err && html`<div class="error">${st.err}</div>`}
+            </div>
+          </div>`;
+      };
+
+      // ---- 多模型卡片列表编辑器：折叠 / 手动排序↑↓ / 删除(无确认) / 新增 / 空提示 ----
+      // 每个 section（如 agents.creative）在 config 中对应一个 models: [] 卡片数组，
+      // 运行时按序 fallback（上一个失败自动用下一个）。折叠状态用 localStorage 持久化。
+      const KNOWN_MODEL_SECTIONS = ["agents.creative","agents.planner","agents.executor","providers.image","providers.video","providers.tts"];
+      const [collapseMap, setCollapseMap] = useState({});
+      useEffect(() => {
+        const m = {};
+        KNOWN_MODEL_SECTIONS.forEach(bp => {
+          const k = "mf:collapse:" + bp;
+          let v = false;
+          try { v = localStorage.getItem(k) === "1"; } catch (e) { v = false; }
+          m[k] = v;
+        });
+        setCollapseMap(m);
+      }, []);
+      const isCollapsed = (basePath) => !!collapseMap["mf:collapse:" + basePath];
+      const toggleCollapse = (basePath) => {
+        const k = "mf:collapse:" + basePath;
+        const nv = !isCollapsed(basePath);
+        try { localStorage.setItem(k, nv ? "1" : "0"); } catch (e) {}
+        setCollapseMap(m => ({ ...m, [k]: nv }));
+      };
+      const resolvePath = (path, obj) =>
+        path.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), obj) || {};
+      const getModelsList = (basePath) => {
+        const node = resolvePath(basePath, config);
+        return (node && Array.isArray(node.models)) ? node.models : [];
+      };
+
+      const renderModelCard = (basePath, idx, card, total) => {
+        const cardPath = basePath + ".models." + idx;
+        const st = slotState[cardPath] || {};
+        const listId = "models-" + cardPath.replace(/\./g, "-");
+        const getv = (k) => (card && card[k] != null) ? card[k] : "";
+        const setv = (k, v) => update(cardPath + "." + k, v);
+        const swap = (dir) => {
+          const arr = getModelsList(basePath);
+          const j = idx + dir;
+          if (j < 0 || j >= arr.length) return;
+          const next = [...arr];
+          const t = next[idx]; next[idx] = next[j]; next[j] = t;
+          update(basePath + ".models", next);
+        };
+        const del = () => {
+          // 删除无需确认，直接移除该卡片
+          const arr = getModelsList(basePath);
+          update(basePath + ".models", arr.filter((_, i) => i !== idx));
+        };
+        const tv = getv("temperature");
+        return html`
+          <div class="config-form" style=${{ marginTop:"10px", border:"1px solid var(--border)", borderRadius:"10px", padding:"12px" }}>
+            <div style=${{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"6px" }}>
+              <div class="note" style=${{ margin:0 }}>模型 #${idx + 1}</div>
+              <div style=${{ display:"flex", gap:"6px" }}>
+                <button type="button" class="save-btn" style=${{ padding:"4px 8px", background:"transparent", color:"var(--muted)", borderColor:"var(--border)" }}
+                  disabled=${idx === 0} onClick=${() => swap(-1)} title="上移">↑</button>
+                <button type="button" class="save-btn" style=${{ padding:"4px 8px", background:"transparent", color:"var(--muted)", borderColor:"var(--border)" }}
+                  disabled=${idx === total - 1} onClick=${() => swap(1)} title="下移">↓</button>
+                <button type="button" class="save-btn" style=${{ padding:"4px 8px", background:"var(--danger)", borderColor:"var(--danger)" }}
+                  onClick=${del} title="删除（无确认）">删除</button>
+              </div>
+            </div>
+            <div class="form-row"><label>模型 model</label>
+              <div style=${{ display:"flex", gap:"8px" }}>
+                <input list=${listId} value=${getv("model")} placeholder="模型名，如 gpt-4o-mini-tts" onInput=${e => setv("model", e.target.value)} style=${{ flex:1 }} />
+                <datalist id=${listId}>${(st.models || []).map(m => html`<option key=${m} value=${m} />`)}</datalist>
+                <button type="button" class="save-btn" style=${{ padding:"8px 12px", whiteSpace:"nowrap" }}
+                  disabled=${st.fetching} onClick=${() => fetchModels(cardPath, { model:"model", base_url:"base_url", api_key:"api_key" })}>
+                  ${st.fetching ? "获取中…" : "获取列表"}</button>
+              </div>
+              ${(st.models || []).length > 0 && html`<div class="note">已获取 ${st.models.length} 个模型，点输入框可下拉选择。</div>`}
+              ${st.err && html`<div class="error">${st.err}</div>`}
+            </div>
+            <div class="form-row"><label>API Base URL</label>
+              <input value=${getv("base_url")} onInput=${e => setv("base_url", e.target.value)} placeholder="留空=用全局默认" /></div>
+            <div class="form-row"><label>API Key</label>
+              <input type="password" value=${getv("api_key")} onInput=${e => setv("api_key", e.target.value)} placeholder="留空=用全局默认" /></div>
+            <div class="form-row"><label>温度 temperature（可选，留空=用全局/默认）</label>
+              <input type="number" step="0.1" value=${tv === "" || tv == null ? "" : tv}
+                onInput=${e => setv("temperature", e.target.value === "" ? null : Number(e.target.value))} placeholder="如 0.8" /></div>
+          </div>`;
+      };
+
+      const renderModelCards = ({ title, basePath }) => {
+        const models = getModelsList(basePath);
+        const collapsed = isCollapsed(basePath);
+        const add = () => update(basePath + ".models", [...models, { model:"", base_url:"", api_key:"", temperature:null }]);
+        return html`
+          <div class="section-title">${title}</div>
+          <div class="config-form">
+            <div style=${{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div class="note" style=${{ margin:0 }}>${models.length} 个模型 · 运行时按序 fallback（上一个失败自动用下一个）</div>
+              <button type="button" class="save-btn" style=${{ padding:"6px 12px", background:"transparent", color:"var(--accent)", borderColor:"var(--accent)" }}
+                onClick=${() => toggleCollapse(basePath)}>${collapsed ? "展开" : "折叠"}</button>
+            </div>
+            ${collapsed
+              ? html`<div class="note">已折叠（共 ${models.length} 个模型）。点击「展开」编辑。</div>`
+              : models.length === 0
+                ? html`<div class="note" style=${{ color:"var(--muted)" }}>暂无模型卡片。若留空：Agent 执行回退全局默认模型；Provider 图片/视频回退另一 Provider 置顶项；TTS 回退免费 Edge TTS。</div>`
+                : models.map((card, idx) => renderModelCard(basePath, idx, card, models.length))}
+            <button type="button" class="save-btn" style=${{ marginTop:"8px" }} onClick=${add}>+ 添加模型</button>
+          </div>`;
+      };
+
+      const g = config?.global || {};
+      const rnd = config?.randomness || {};
+      const tp = config?.providers?.tts || {};
+
+      return html`
+        <div class="app">
+          <header class="topbar">
+            <h1>AI 盲盒</h1>
+            <div class="tabs">
+              <div class=${"tab " + (tab === "box" ? "active" : "")} onClick=${() => setTab("box")}>开盲盒</div>
+              <div class=${"tab " + (tab === "history" ? "active" : "")} onClick=${() => { setTab("history"); loadHistory(); }}>历史</div>
+              <div class=${"tab " + (tab === "config" ? "active" : "")} onClick=${() => setTab("config")}>配置</div>
+            </div>
+          </header>
+          <div class="banner">免构建演示页：用 preact + htm（已打包到本地 frontend/vendor，无需联网），无需 npm install。生产版请用 Vite 工程（npm install 后 npm run dev）。</div>
+
+          ${tab === "box" && html`
+            <div class="section-title">选择模式</div>
+            <div class="mode-grid">
+              ${modes.map(m => html`
+                <div key=${m.id} class=${"mode-card " + (selected === m.id ? "selected" : "")}
+                     onClick=${() => setSelected(m.id)}>
+                  <div class="name">${m.name}</div>
+                  <div class="desc">${m.executor_type}</div>
+                </div>`)}
+            </div>
+            <button class="open-btn" disabled=${loading || !selected} onClick=${openBox}>
+              ${loading ? "开启中…" : "🎁 开启盲盒"}
+            </button>
+            ${error && html`<div class="error">${error}</div>`}
+            ${result && html`
+              <div class="result">
+                <div class="seed-pill">seed: ${result.seed}</div>
+                <h3>概念卡（创意 Agent）</h3>
+                <div class="concept">${result.concept}</div>
+                <h3>规划输出（规划 Agent）</h3>
+                <div class="plan">${result.plan}</div>
+                <h3>成品</h3>
+                ${result.output_kind === "text" && html`<div class="concept">${result.output}</div>`}
+                ${result.output_kind === "spec_md" && html`<div class="plan">已生成 spec：<br/><code>${result.output}</code></div>`}
+                ${result.output_kind === "image_url" && html`
+                  ${mediaSrc(result)
+                    ? html`<img src=${mediaSrc(result)} style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}} alt="result" />`
+                    : html`<div class="plan">${result.output}</div>`}`}
+                ${result.output_kind === "video_file" && html`
+                  ${mediaSrc(result)
+                    ? html`<video src=${mediaSrc(result)} controls style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}}></video>`
+                    : html`<div class="plan">${result.output}</div>`}`}
+                ${result.output_kind === "audio_file" && html`
+                  ${mediaSrc(result)
+                    ? html`<audio src=${mediaSrc(result)} controls preload="metadata" style=${{width:"100%",borderRadius:"12px",marginTop:"8px"}}></audio>`
+                    : html`<div class="plan">${result.output}</div>`}
+                  ${result.tts_info ? html`<div class="note" style=${{marginTop:"6px"}}>🎙 合成：${result.tts_info}</div>` : null}`}
+                ${result.output_kind === "game_html" && html`
+                  ${mediaSrc(result)
+                    ? html`<iframe src=${mediaSrc(result)} sandbox="allow-scripts" scrolling="no" title="小游戏" style=${{width:"100%",height:"520px",border:"0",borderRadius:"12px",marginTop:"8px",overflow:"hidden"}}></iframe>`
+                    : html`<div class="plan">${result.output}</div>`}
+                  <div class="note" style=${{marginTop:"6px"}}>🎮 小游戏（点击操作；沙箱隔离运行）</div>`}
+                ${result.archived && html`
+                  <div class="archive-box">
+                    <span class="archive-badge">✓ 已自动归档</span>
+                    <span class="archive-time">${result.archived.timestamp}</span>
+                    <div class="archive-links">
+                      <a href=${"/output/" + result.archived.json} target="_blank" rel="noreferrer">归档记录 (JSON)</a>
+                      ${result.archived.local_file
+                        ? html`<a href=${"/output/" + result.archived.local_file} target="_blank" rel="noreferrer">本地成品</a>`
+                        : result.output_kind === "image_url" || result.output_kind === "video_file"
+                          ? html`<span class="archive-note">（远程成品未下载到本地，可手动保存）</span>`
+                          : null}
+                    </div>
+                  </div>`}
+                <button class="open-btn" style="margin-top:16px" onClick=${openBox}>再抽一次（换种子）</button>
+              </div>`}
+          `}
+
+          ${tab === "config" && config && html`
+            <div class="section-title">全局配置</div>
+            <div class="config-form">
+              <div class="form-row"><label>管道模式</label>
+                <select value=${g.pipeline_mode || "standard"} onChange=${e => update("global.pipeline_mode", e.target.value)}>
+                  <option value="standard">standard（3 Agent）</option>
+                  <option value="lite">lite（2 Agent）</option>
+                </select></div>
+              <div class="form-row"><label>
+                <input type="checkbox" checked=${!!config.mock} onInput=${e => update("mock", e.target.checked)} /> Mock 模式（无真实 key 时本地模拟）</label></div>
+              <div class="section-title">随机性</div>
+              <div class="form-row"><label>每抽抽取种子数</label>
+                <input type="number" value=${rnd.per_open_draw ?? 2} onInput=${e => update("randomness.per_open_draw", Number(e.target.value))} /></div>
+
+              <div class="section-title">随机种子池（twist pool）</div>
+              <div class="note">四个维度各维护一组候选词条，每次开盲盒从中抽取。可手动增删改，也可用「🎲 生成」调用大模型补一条（已自动避开重复）。</div>
+              ${poolDims.map(dim => html`
+                <div class="config-form" style=${{ marginTop: "10px" }}>
+                  <div style=${{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div class="section-title" style=${{ margin: "0" }}>${dimCn[dim]}（${dim}）</div>
+                    <button type="button" class="save-btn" style=${{ padding: "6px 12px" }}
+                      disabled=${poolUI.gen?.[dim]} onClick=${() => genSeed(dim)}>
+                      ${poolUI.gen?.[dim] ? "生成中…" : "🎲 生成新种子"}
+                    </button>
+                  </div>
+                  ${getPool(dim).map((it, idx) => html`
+                    <div style=${{ display: "flex", gap: "6px", marginTop: "6px" }}>
+                      <input value=${it} onInput=${e => editItem(dim, idx, e.target.value)} style=${{ flex: 1 }} />
+                      <button type="button" class="save-btn"
+                        style=${{ padding: "6px 10px", background: "var(--danger)", borderColor: "var(--danger)" }}
+                        onClick=${() => removeItem(dim, idx)}>×</button>
+                    </div>`)}
+                  <div style=${{ display: "flex", gap: "6px", marginTop: "6px" }}>
+                    <input placeholder=${"新增一条" + dimCn[dim] + "…"}
+                      value=${poolUI.addText?.[dim] || ""}
+                      onInput=${e => setPoolUI(s => ({ ...s, addText: { ...s.addText, [dim]: e.target.value } }))}
+                      onKeyDown=${e => { if (e.key === "Enter") addItem(dim); }} style=${{ flex: 1 }} />
+                    <button type="button" class="save-btn" style=${{ padding: "6px 10px" }} onClick=${() => addItem(dim)}>添加</button>
+                  </div>
+                  ${poolUI.genErr?.[dim] && html`<div class="error">${poolUI.genErr[dim]}</div>`}
+                </div>`)}
+              <button type="button" class="save-btn"
+                style=${{ marginTop: "10px", background: "transparent", color: "var(--muted)" }}
+                onClick=${resetPool}>↺ 恢复默认种子池</button>
+            </div>
+
+            ${renderModelSlot({title:"全局默认模型（各 Agent/Provider 留空时回退）", basePath:"global", keyMap:{model:"default_model",base_url:"default_base_url",api_key:"default_api_key"}, config, update, fetchModels})}
+
+            ${["creative","planner","executor"].map(key => {
+              const titles = {creative:"Agent1 创意（高温度，脑洞大）", planner:"Agent2 规划（低温度，严谨格式化）", executor:"Agent3 执行（图片/视频由下方 provider 覆盖）"};
+              return renderModelCards({title:titles[key], basePath:"agents."+key});
+            })}
+
+            <div class="section-title">图片 / 视频 模型（执行 Agent 调多模态时覆盖，运行时按序 fallback）</div>
+            ${["image","video"].map(pkey => {
+              const title = pkey === "image" ? "图片模型" : "视频模型";
+              return renderModelCards({title, basePath:"providers."+pkey});
+            })}
+
+            <div class="section-title">播客 TTS 语音合成（文字 → 语音）</div>
+            <div class="config-form">
+              <div class="note">无需选择引擎：<b>不填 base_url / api_key</b> → 自动使用免费 Edge TTS；<b>同时填好 base_url / api_key</b> → 走云端大模型（用下方 model 指定模型，任意兼容 OpenAI /audio/speech 的厂商均可）；云端调用出错会自动回退 Edge TTS。</div>
+              <div class="form-row"><label>音色 Voice</label>
+                <input value=${tp.voice || ""} onInput=${e => update("providers.tts.voice", e.target.value)}
+                  list="voice-suggestions" placeholder="Edge 例: zh-CN-XiaoxiaoNeural · 云端直接手写音色名" />
+                <datalist id="voice-suggestions">
+                  <optgroup label="Edge TTS（免费·本地）">
+                    ${voices.edge.map(v => html`<option key=${v.id} value=${v.id}>${v.name}</option>`)}
+                  </optgroup>
+                  <optgroup label="常用云端音色（参考）">
+                    ${voices.cloud.map(v => html`<option key=${v.id} value=${v.id}>${v.name}</option>`)}
+                  </optgroup>
+                </datalist>
+                <div class="note">可手写任意音色名，或从下拉建议中选择</div>
+              </div>
+            ${renderModelCards({title:"TTS 模型（云端模式必填 model / base_url / api_key；未填 base_url/api_key 则默认免费 Edge TTS；云端出错自动回退 Edge）", basePath:"providers.tts"})}
+
+            <div class="paths">${"大文件目录（默认 D 盘，不写 C 盘）：\n缓存: " + (paths.cache_dir||"") + "\n产物: " + (paths.output_dir||"") + "\n上传: " + (paths.data_dir||"")}</div>
+            ${saved && html`<div class="note" style="color:var(--accent-2)">✓ 已保存</div>`}
+            ${error && html`<div class="error">${error}</div>`}
+            <button class="save-btn" style="margin-top:12px" onClick=${save}>保存配置</button>
+            </div>
+          `}
+
+          ${tab === "history" && html`
+            <div class="section-title">历史记录（${history.length} 条）</div>
+            ${histLoading && html`<div class="note">加载中…</div>`}
+            ${histError && html`<div class="error">${histError}</div>`}
+            ${!histLoading && !histError && history.length === 0
+              && html`<div class="note">还没有开盒记录，去「开盲盒」抽一个吧。</div>`}
+            <div class="hist-list">
+              ${history.map(it => html`
+                <div class="hist-item" key=${it.id}>
+                  <div class="hist-head" onClick=${() => setExpandedId(expandedId === it.id ? null : it.id)}>
+                    <span class="hist-mode">${modeName(it.mode)}</span>
+                    <span class="hist-time">${it.timestamp || ""}</span>
+                    <span class="hist-kind">${it.output_kind || ""}</span>
+                  </div>
+                  <div class="seed-pill">seed: ${it.seed || "（无）"}</div>
+                  ${expandedId === it.id ? html`
+                    <h3>概念卡</h3>
+                    <div class="concept">${it.concept || ""}</div>
+                    <h3>规划输出</h3>
+                    <div class="plan">${it.plan || "(无规划输出)"}</div>
+                    <h3>成品</h3>
+                    ${it.output_kind === "text" && html`<div class="concept">${it.output || ""}</div>`}
+                    ${it.output_kind === "spec_md" && html`<div class="plan"><code>${it.output || ""}</code></div>`}
+                    ${it.output_kind === "game_html" && html`
+                      ${it.local_file
+                        ? html`<iframe src=${"/output/" + it.local_file} sandbox="allow-scripts" scrolling="no" title="小游戏" style=${{width:"100%",height:"520px",border:"0",borderRadius:"12px",marginTop:"8px",overflow:"hidden"}}></iframe>`
+                        : html`<div class="plan">${it.output || ""}</div>`}`}
+                    ${(it.output_kind === "image_url" || it.output_kind === "video_file" || it.output_kind === "audio_file") && html`
+                      ${it.output_kind === "video_file"
+                        ? html`<video src=${it.local_file ? "/output/" + it.local_file : it.output} controls style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}}></video>`
+                        : it.output_kind === "audio_file"
+                          ? html`<audio src=${it.local_file ? "/output/" + it.local_file : it.output} controls preload="metadata" style=${{width:"100%",borderRadius:"12px",marginTop:"8px"}}></audio>`
+                          : html`<img src=${it.local_file ? "/output/" + it.local_file : it.output} style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}} alt="result" />`}
+                      ${it.tts_info ? html`<div class="note" style=${{marginTop:"6px"}}>🎙 合成：${it.tts_info}</div>` : null}`}
+                    <div class="archive-links">
+                      <a href=${"/output/" + it.json} target="_blank" rel="noreferrer">归档 JSON</a>
+                      ${it.local_file && html`<a href=${"/output/" + it.local_file} target="_blank" rel="noreferrer">本地成品</a>`}
+                    </div>
+                    <button class="save-btn" style=${{marginTop:"10px"}}
+                      onClick=${() => { setSelected(it.mode); setTab("box"); runOpen(it.mode, it.seed); }}>用此 seed 重抽</button>
+                  ` : html`<div class="hist-snippet">${(it.output || "").slice(0, 90)}</div>`}
+                </div>`)}
+            </div>
+            ${history.length > 0 && html`
+              <button class="save-btn" style=${{marginTop:"12px",background:"transparent",color:"var(--muted)"}} onClick=${loadHistory}>↻ 刷新</button>`}
+          `}
+        </div>
+      `;
+    }
+
+    render(html`<${App} />`, document.getElementById("root"));
+  

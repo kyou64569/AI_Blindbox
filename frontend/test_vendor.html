@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Vendor Test</title>
+</head>
+<body>
+  <div id="status">Loading vendor files...</div>
+  
+  <script src="vendor/preact.umd.js"></script>
+  <script src="vendor/htm.umd.js"></script>
+  <script src="vendor/preact-hooks.umd.js"></script>
+  
+  <script>
+    const status = document.getElementById("status");
+    
+    setTimeout(() => {
+      try {
+        if (typeof preact === "undefined") {
+          status.innerHTML = "ERROR: preact not loaded";
+          status.style.color = "red";
+        } else if (typeof htm === "undefined") {
+          status.innerHTML = "ERROR: htm not loaded";
+          status.style.color = "red";
+        } else if (typeof preactHooks === "undefined") {
+          status.innerHTML = "ERROR: preactHooks not loaded";
+          status.style.color = "red";
+        } else {
+          status.innerHTML = "SUCCESS: All vendor files loaded correctly!";
+          status.style.color = "green";
+          status.style.fontSize = "24px";
+          status.style.fontWeight = "bold";
+          
+          // Test basic functionality
+          const { h, render } = preact;
+          const { useState } = preactHooks;
+          const html = htm.bind(h);
+          
+          function TestApp() {
+            const [count, setCount] = useState(0);
+            return html`<div>
+              <h1>Test App</h1>
+              <p>Count: ${count}</p>
+              <button onClick=${() => setCount(count + 1)}>Increment</button>
+            </div>`;
+          }
+          
+          render(html`<${TestApp} />`, document.body);
+        }
+      } catch (e) {
+        status.innerHTML = "ERROR: " + e.message;
+        status.style.color = "red";
+        console.error(e);
+      }
+    }, 100);
+  </script>
+</body>
+</html>

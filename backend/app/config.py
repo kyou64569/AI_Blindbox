@@ -76,12 +76,45 @@ class Settings:
         return None
 
 
+def _normalize_section(section: "dict | None") -> "dict | None":
+    """把旧的扁平 {model,base_url,api_key,temperature} 规范成多模型 {models:[...]}。
+
+    - 若 section 有真值 model 且（models 不存在或为空列表）→ 包成 models=[{...}]。
+    - 若 model 为空（如 executor 当前 model: ''）→ 设 models=[]（不包空卡片）。
+    - 幂等：已有非空 models 不再包。
+    - 同时保留原有扁平 model/base_url/api_key/temperature 作为组级默认值。
+    """
+    if not isinstance(section, dict):
+        return section
+    models = section.get("models")
+    if isinstance(models, list) and len(models) > 0:
+        return section  # 已有非空 models，幂等不重复包
+    model = (section.get("model") or "").strip()
+    if model:
+        section["models"] = [{
+            "model": model,
+            "base_url": section.get("base_url") or "",
+            "api_key": section.get("api_key") or "",
+            "temperature": section.get("temperature", None),
+        }]
+    else:
+        section["models"] = []
+    return section
+
+
 def load_settings(path: str | Path | None = None) -> Settings:
     path = Path(path) if path else (PROJECT_ROOT / "settings.yaml")
     if not path.exists():
         raise FileNotFoundError(f"配置文件不存在: {path}")
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
+    # 多模型规范化：把 agents / providers 各 section 的扁平 model 升级为 models 列表
+    agents = raw.get("agents", {}) or {}
+    for ak in ("creative", "planner", "executor"):
+        _normalize_section(agents.get(ak))
+    providers = raw.get("providers", {}) or {}
+    for pk in ("image", "video", "tts"):
+        _normalize_section(providers.get(pk))
     return Settings(raw)
 
 

@@ -108,8 +108,132 @@ function ModelSlot({ title, note, basePath, keyMap, config, update }) {
   );
 }
 
+/**
+ * 多模型卡片列表编辑器：折叠 / 手动排序↑↓ / 删除(无确认) / 新增 / 空提示。
+ * 每个 section（如 agents.creative）在 config 中对应一个 models: [] 卡片数组，
+ * 运行时按序 fallback（上一个失败自动用下一个）。折叠状态用 localStorage 持久化。
+ */
+function ModelCard({ basePath, idx, card, total, config, update }) {
+  const [models, setModels] = useState([]);
+  const [fetching, setFetching] = useState(false);
+  const [err, setErr] = useState(null);
+  const getv = (k) => (card && card[k] != null ? card[k] : "");
+  const setv = (k, v) => update(`${basePath}.models.${idx}.${k}`, v);
+  const listId = "models-" + `${basePath}.models.${idx}`.replace(/\./g, "-");
+
+  const swap = (dir) => {
+    const node = basePath.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), config);
+    const arr = (node && Array.isArray(node.models)) ? node.models : [];
+    const j = idx + dir;
+    if (j < 0 || j >= arr.length) return;
+    const next = [...arr];
+    const t = next[idx]; next[idx] = next[j]; next[j] = t;
+    update(`${basePath}.models`, next);
+  };
+  const del = () => {
+    // 删除无需确认，直接移除该卡片
+    const node = basePath.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), config);
+    const arr = (node && Array.isArray(node.models)) ? node.models : [];
+    update(`${basePath}.models`, arr.filter((_, i) => i !== idx));
+  };
+  const fetchModels = async () => {
+    setErr(null);
+    setFetching(true);
+    try {
+      const resp = await fetch("/api/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base_url: getv("base_url") || config.global?.default_base_url || "",
+          api_key: getv("api_key") || config.global?.default_api_key || "",
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || "获取失败");
+      setModels(data.models || []);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  const tv = getv("temperature");
+  return (
+    <div className="config-form" style={{ marginTop: "10px", border: "1px solid var(--border)", borderRadius: "10px", padding: "12px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+        <div className="note" style={{ margin: 0 }}>模型 #{idx + 1}</div>
+        <div style={{ display: "flex", gap: "6px" }}>
+          <button type="button" className="save-btn" style={{ padding: "4px 8px", background: "transparent", color: "var(--muted)", borderColor: "var(--border)" }} disabled={idx === 0} onClick={() => swap(-1)} title="上移">↑</button>
+          <button type="button" className="save-btn" style={{ padding: "4px 8px", background: "transparent", color: "var(--muted)", borderColor: "var(--border)" }} disabled={idx === total - 1} onClick={() => swap(1)} title="下移">↓</button>
+          <button type="button" className="save-btn" style={{ padding: "4px 8px", background: "var(--danger)", borderColor: "var(--danger)" }} onClick={del} title="删除（无确认）">删除</button>
+        </div>
+      </div>
+      <div className="form-row">
+        <label>模型 model</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input list={listId} value={getv("model") || ""} placeholder="模型名，如 gpt-4o-mini-tts" onChange={(e) => setv("model", e.target.value)} style={{ flex: 1 }} />
+          <datalist id={listId}>
+            {models.map((m) => (<option key={m} value={m} />))}
+          </datalist>
+          <button type="button" className="save-btn" style={{ padding: "8px 12px", whiteSpace: "nowrap" }} disabled={fetching} onClick={fetchModels}>
+            {fetching ? "获取中…" : "获取列表"}
+          </button>
+        </div>
+        {models.length > 0 && <div className="note">已获取 {models.length} 个模型，点输入框可下拉选择。</div>}
+        {err && <div className="error">{err}</div>}
+      </div>
+      <Field label="API Base URL" value={getv("base_url")} onChange={(v) => setv("base_url", v)} placeholder="留空=用全局默认" />
+      <Field label="API Key" type="password" value={getv("api_key")} onChange={(v) => setv("api_key", v)} placeholder="留空=用全局默认" />
+      <div className="form-row">
+        <label>温度 temperature（可选，留空=用全局/默认）</label>
+        <input type="number" step="0.1" value={tv === "" || tv == null ? "" : tv}
+          onChange={(e) => setv("temperature", e.target.value === "" ? null : Number(e.target.value))} placeholder="如 0.8" />
+      </div>
+    </div>
+  );
+}
+
+function ModelCards({ title, note, basePath, config, update }) {
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    const k = "mf:collapse:" + basePath;
+    try { setCollapsed(localStorage.getItem(k) === "1"); } catch (e) {}
+  }, [basePath]);
+  const toggle = () => {
+    setCollapsed((c) => {
+      const nv = !c;
+      try { localStorage.setItem("mf:collapse:" + basePath, nv ? "1" : "0"); } catch (e) {}
+      return nv;
+    });
+  };
+  const node = basePath.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), config);
+  const models = (node && Array.isArray(node.models)) ? node.models : [];
+  const add = () => update(`${basePath}.models`, [...models, { _id: "card_" + Math.random().toString(36).slice(2), model: "", base_url: "", api_key: "", temperature: null }]);
+  return (
+    <div>
+      <div className="section-title">{title}</div>
+      {note && <div className="note" style={{ marginBottom: 8 }}>{note}</div>}
+      <div className="config-form">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="note" style={{ margin: 0 }}>{models.length} 个模型 · 运行时按序 fallback（上一个失败自动用下一个）</div>
+          <button type="button" className="save-btn" style={{ padding: "6px 12px", background: "transparent", color: "var(--accent)", borderColor: "var(--accent)" }} onClick={toggle}>{collapsed ? "展开" : "折叠"}</button>
+        </div>
+        {collapsed
+          ? <div className="note">已折叠（共 {models.length} 个模型）。点击「展开」编辑。</div>
+          : models.length === 0
+            ? <div className="note" style={{ color: "var(--muted)" }}>暂无模型卡片。若留空：Agent 执行回退全局默认模型；Provider 图片/视频回退另一 Provider 置顶项；TTS 回退免费 Edge TTS。</div>
+            : models.map((card, idx) => (
+                <ModelCard key={card._id || idx} basePath={basePath} idx={idx} card={card} total={models.length} config={config} update={update} />
+              ))}
+        <button type="button" className="save-btn" style={{ marginTop: 8 }} onClick={add}>+ 添加模型</button>
+      </div>
+    </div>
+  );
+}
+
+
 const GLOBAL_KEYMAP = { model: "default_model", base_url: "default_base_url", api_key: "default_api_key" };
-const STD_KEYMAP = { model: "model", base_url: "base_url", api_key: "api_key" };
 
 export default function ConfigPanel() {
   const [config, setConfig] = useState(null);
@@ -275,43 +399,13 @@ export default function ConfigPanel() {
         update={update}
       />
 
-      <ModelSlot
-        title="Agent1 创意（高温度，脑洞大）"
-        basePath="agents.creative"
-        keyMap={STD_KEYMAP}
-        config={config}
-        update={update}
-      />
-      <ModelSlot
-        title="Agent2 规划（低温度，严谨格式化）"
-        basePath="agents.planner"
-        keyMap={STD_KEYMAP}
-        config={config}
-        update={update}
-      />
-      <ModelSlot
-        title="Agent3 执行（文本类；图片/视频由下方 provider 覆盖）"
-        basePath="agents.executor"
-        keyMap={STD_KEYMAP}
-        config={config}
-        update={update}
-      />
+      <ModelCards title="Agent1 创意（高温度，脑洞大）" basePath="agents.creative" config={config} update={update} />
+      <ModelCards title="Agent2 规划（低温度，严谨格式化）" basePath="agents.planner" config={config} update={update} />
+      <ModelCards title="Agent3 执行（文本类；图片/视频由下方 provider 覆盖）" basePath="agents.executor" config={config} update={update} />
 
-      <div className="section-title">图片 / 视频 模型（执行 Agent 调多模态时覆盖）</div>
-      <ModelSlot
-        title="图片模型"
-        basePath="providers.image"
-        keyMap={STD_KEYMAP}
-        config={config}
-        update={update}
-      />
-      <ModelSlot
-        title="视频模型"
-        basePath="providers.video"
-        keyMap={STD_KEYMAP}
-        config={config}
-        update={update}
-      />
+      <div className="section-title">图片 / 视频 模型（执行 Agent 调多模态时覆盖，运行时按序 fallback）</div>
+      <ModelCards title="图片模型" basePath="providers.image" config={config} update={update} />
+      <ModelCards title="视频模型" basePath="providers.video" config={config} update={update} />
 
       <div className="section-title">播客 TTS 语音合成（文字 → 语音）</div>
       <div className="config-form">
@@ -327,11 +421,10 @@ export default function ConfigPanel() {
           placeholder="留空=各引擎默认音色"
         />
       </div>
-      <ModelSlot
+      <ModelCards
         title="TTS 模型（云端模式必填 model / base_url / api_key；未填 base_url/api_key 则默认免费 Edge TTS）"
         note="未填 base_url / api_key → 免费 Edge TTS（忽略 model）；同时填了 → 用此处 model 调用云端大模型，出错自动回退 Edge。"
         basePath="providers.tts"
-        keyMap={STD_KEYMAP}
         config={config}
         update={update}
       />

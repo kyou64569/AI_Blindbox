@@ -35,6 +35,7 @@
       border-radius:12px;padding:18px}
     .result h3{margin:0 0 8px;font-size:14px;color:var(--accent)}
     .concept{white-space:pre-wrap;line-height:1.6;font-size:14px}
+    .model-hint{font-size:12px;color:#888;margin-top:6px;opacity:.8}
     .plan{white-space:pre-wrap;line-height:1.6;font-size:13px;color:var(--muted);
       background:var(--panel-2);padding:12px;border-radius:8px;margin-top:8px}
     .seed-pill{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--panel-2);
@@ -46,6 +47,15 @@
     .archive-links{margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;font-size:13px}
     .archive-links a{color:var(--accent-2);text-decoration:underline}
     .archive-note{color:var(--muted);font-size:12px}
+    .character-card{margin:8px auto 0;background:var(--panel-2);border:1px solid var(--border);
+      border-radius:14px;overflow:hidden;max-width:480px;width:100%}
+    .char-frame{width:100%;padding-top:100%;position:relative;background:#0b1220}
+    .char-frame img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+    .char-fields{padding:14px 16px}
+    .char-row{margin-bottom:8px}
+    .char-row:last-child{margin-bottom:0}
+    .char-label{font-size:11px;color:var(--accent);font-weight:600;letter-spacing:0.5px}
+    .char-value{font-size:14px;color:var(--text);line-height:1.5;margin-top:2px}
     .config-form{background:var(--panel);border:1px solid var(--border);border-radius:12px;
       padding:18px;margin-top:12px}
     .form-row{display:flex;flex-direction:column;margin-bottom:14px}
@@ -83,9 +93,10 @@
     // 依赖缺失时给出明确提示，避免白屏
     if (typeof preact === "undefined" || typeof htm === "undefined" || typeof preactHooks === "undefined") {
       document.getElementById("root").innerHTML =
-        '<p style="color:#e24b4a;padding:24px">前端依赖未加载：请确认 frontend/vendor/ 下的 preact.umd.js、htm.umd.js、preact-hooks.umd.js 存在。</p>';
+        '<p style="color:#e24b4a;padding:24px">前端依赖未加载：请确认 frontend/vendor/ 下的 preact.umd.js、htm.umd.js、preact-hooks.umd.js 存在。<br>preact: ' + typeof preact + '<br>htm: ' + typeof htm + '<br>preactHooks: ' + typeof preactHooks + '</p>';
       throw new Error("vendor missing");
     }
+    
     const { h, render } = preact;
     const { useState, useEffect, useRef } = preactHooks;
     const html = htm.bind(h);
@@ -167,6 +178,16 @@
         // 裸相对文件名（output 目录内）——自动补 /output/ 也能渲染
         if (o && !/^[a-zA-Z]:[\\/]/.test(o) && !o.startsWith("/")) return "/output/" + o;
         return null; // 无法渲染 -> 退回纯文本
+      };
+      // 角色卡：解析 "Name | xxx" 或 "Name: xxx" 格式的结构化文本 → [{label, value}]
+      const parseCharFields = (text) => {
+        if (!text) return [];
+        return text.split("\n").map(l => l.trim()).filter(Boolean).map(line => {
+          // "Name | value" 或 "Name: value" 或 【Name】value
+          const m = line.match(/^(?:【|[\[])?\s*(.+?)\s*(?:】|[\]]?)\s*[:|：]\s*(.+)/);
+          if (m) return { label: m[1].trim(), value: m[2].trim() };
+          return { label: "", value: line };
+        }).filter(f => f.value);
       };
       const loadHistory = async () => {
         setHistLoading(true); setHistError(null);
@@ -306,6 +327,111 @@
           </div>`;
       };
 
+      // ---- 多模型卡片列表编辑器：折叠 / 手动排序↑↓ / 删除(无确认) / 新增 / 空提示 ----
+      // 每个 section（如 agents.creative）在 config 中对应一个 models: [] 卡片数组，
+      // 运行时按序 fallback（上一个失败自动用下一个）。折叠状态用 localStorage 持久化。
+      const KNOWN_MODEL_SECTIONS = ["agents.creative","agents.planner","agents.executor","providers.image","providers.video","providers.tts"];
+      const [collapseMap, setCollapseMap] = useState({});
+      useEffect(() => {
+        const m = {};
+        KNOWN_MODEL_SECTIONS.forEach(bp => {
+          const k = "mf:collapse:" + bp;
+          let v = false;
+          try { v = localStorage.getItem(k) === "1"; } catch (e) { v = false; }
+          m[k] = v;
+        });
+        setCollapseMap(m);
+      }, []);
+      const isCollapsed = (basePath) => !!collapseMap["mf:collapse:" + basePath];
+      const toggleCollapse = (basePath) => {
+        const k = "mf:collapse:" + basePath;
+        const nv = !isCollapsed(basePath);
+        try { localStorage.setItem(k, nv ? "1" : "0"); } catch (e) {}
+        setCollapseMap(m => ({ ...m, [k]: nv }));
+      };
+      const resolvePath = (path, obj) =>
+        path.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), obj) || {};
+      const getModelsList = (basePath) => {
+        const node = resolvePath(basePath, config);
+        return (node && Array.isArray(node.models)) ? node.models : [];
+      };
+
+      const renderModelCard = (basePath, idx, card, total) => {
+        const cardPath = basePath + ".models." + idx;
+        const st = slotState[cardPath] || {};
+        const listId = "models-" + cardPath.replace(/\./g, "-");
+        const getv = (k) => (card && card[k] != null) ? card[k] : "";
+        const setv = (k, v) => update(cardPath + "." + k, v);
+        const swap = (dir) => {
+          const arr = getModelsList(basePath);
+          const j = idx + dir;
+          if (j < 0 || j >= arr.length) return;
+          const next = [...arr];
+          const t = next[idx]; next[idx] = next[j]; next[j] = t;
+          update(basePath + ".models", next);
+        };
+        const del = () => {
+          // 删除无需确认，直接移除该卡片
+          const arr = getModelsList(basePath);
+          update(basePath + ".models", arr.filter((_, i) => i !== idx));
+        };
+        const tv = getv("temperature");
+        return html`
+          <div key=${card._id || idx} class="config-form" style=${{ marginTop:"10px", border:"1px solid var(--border)", borderRadius:"10px", padding:"12px" }}>
+            <div style=${{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"6px" }}>
+              <div class="note" style=${{ margin:0 }}>模型 #${idx + 1}</div>
+              <div style=${{ display:"flex", gap:"6px" }}>
+                <button type="button" class="save-btn" style=${{ padding:"4px 8px", background:"transparent", color:"var(--muted)", borderColor:"var(--border)" }}
+                  disabled=${idx === 0} onClick=${() => swap(-1)} title="上移">↑</button>
+                <button type="button" class="save-btn" style=${{ padding:"4px 8px", background:"transparent", color:"var(--muted)", borderColor:"var(--border)" }}
+                  disabled=${idx === total - 1} onClick=${() => swap(1)} title="下移">↓</button>
+                <button type="button" class="save-btn" style=${{ padding:"4px 8px", background:"var(--danger)", borderColor:"var(--danger)" }}
+                  onClick=${del} title="删除（无确认）">删除</button>
+              </div>
+            </div>
+            <div class="form-row"><label>模型 model</label>
+              <div style=${{ display:"flex", gap:"8px" }}>
+                <input list=${listId} value=${getv("model")} placeholder="模型名，如 gpt-4o-mini-tts" onInput=${e => setv("model", e.target.value)} style=${{ flex:1 }} />
+                <datalist id=${listId}>${(st.models || []).map(m => html`<option key=${m} value=${m} />`)}</datalist>
+                <button type="button" class="save-btn" style=${{ padding:"8px 12px", whiteSpace:"nowrap" }}
+                  disabled=${st.fetching} onClick=${() => fetchModels(cardPath, { model:"model", base_url:"base_url", api_key:"api_key" })}>
+                  ${st.fetching ? "获取中…" : "获取列表"}</button>
+              </div>
+              ${(st.models || []).length > 0 && html`<div class="note">已获取 ${st.models.length} 个模型，点输入框可下拉选择。</div>`}
+              ${st.err && html`<div class="error">${st.err}</div>`}
+            </div>
+            <div class="form-row"><label>API Base URL</label>
+              <input value=${getv("base_url")} onInput=${e => setv("base_url", e.target.value)} placeholder="留空=用全局默认" /></div>
+            <div class="form-row"><label>API Key</label>
+              <input type="password" value=${getv("api_key")} onInput=${e => setv("api_key", e.target.value)} placeholder="留空=用全局默认" /></div>
+            <div class="form-row"><label>温度 temperature（可选，留空=用全局/默认）</label>
+              <input type="number" step="0.1" value=${tv === "" || tv == null ? "" : tv}
+                onInput=${e => setv("temperature", e.target.value === "" ? null : Number(e.target.value))} placeholder="如 0.8" /></div>
+          </div>`;
+      };
+
+      const renderModelCards = ({ title, basePath, note }) => {
+        const models = getModelsList(basePath);
+        const collapsed = isCollapsed(basePath);
+        const add = () => update(basePath + ".models", [...models, { _id: "card_" + Math.random().toString(36).slice(2), model:"", base_url:"", api_key:"", temperature:null }]);
+        return html`
+          <div class="section-title">${title}</div>
+          ${note && html`<div class="note" style=${{ marginBottom: 8 }}>${note}</div>`}
+          <div class="config-form">
+            <div style=${{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div class="note" style=${{ margin:0 }}>${models.length} 个模型 · 运行时按序 fallback（上一个失败自动用下一个）</div>
+              <button type="button" class="save-btn" style=${{ padding:"6px 12px", background:"transparent", color:"var(--accent)", borderColor:"var(--accent)" }}
+                onClick=${() => toggleCollapse(basePath)}>${collapsed ? "展开" : "折叠"}</button>
+            </div>
+            ${collapsed
+              ? html`<div class="note">已折叠（共 ${models.length} 个模型）。点击「展开」编辑。</div>`
+              : models.length === 0
+                ? html`<div class="note" style=${{ color:"var(--muted)" }}>暂无模型卡片。若留空：Agent 执行回退全局默认模型；Provider 图片/视频回退另一 Provider 置顶项；TTS 回退免费 Edge TTS。</div>`
+                : models.map((card, idx) => renderModelCard(basePath, idx, card, models.length))}
+            <button type="button" class="save-btn" style=${{ marginTop:"8px" }} onClick=${add}>+ 添加模型</button>
+          </div>`;
+      };
+
       const g = config?.global || {};
       const rnd = config?.randomness || {};
       const tp = config?.providers?.tts || {};
@@ -345,10 +471,27 @@
                 <div class="plan">${result.plan}</div>
                 <h3>成品</h3>
                 ${result.output_kind === "text" && html`<div class="concept">${result.output}</div>`}
+                ${result.output_kind === "character_card" && html`
+                  <div class="character-card">
+                    ${result.image_url && html`
+                      <div class="char-frame">
+                        <img src=${mediaSrc({output: result.image_url})} alt="avatar" />
+                      </div>`}
+                    <div class="char-fields">
+                      ${parseCharFields(result.output).map(f => html`
+                        <div class="char-row">
+                          <div class="char-label">${f.label}</div>
+                          <div class="char-value">${f.value}</div>
+                        </div>`)}
+                    </div>
+                  </div>`}
                 ${result.output_kind === "spec_md" && html`<div class="plan">已生成 spec：<br/><code>${result.output}</code></div>`}
                 ${result.output_kind === "image_url" && html`
                   ${mediaSrc(result)
-                    ? html`<img src=${mediaSrc(result)} style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}} alt="result" />`
+                    ? html`<div style=${{position:"relative",display:"inline-block",maxWidth:"100%"}}>
+                        <img src=${mediaSrc(result)} style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px",display:"block"}} alt="result" />
+                        ${result.caption ? html`<div style=${{position:"absolute",left:0,right:0,bottom:0,padding:"10px 12px",borderRadius:"0 0 12px 12px",color:"#fff",background:"linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))",fontSize:20,fontWeight:700,textAlign:"center",textShadow:"0 1px 3px rgba(0,0,0,0.5)"}}>${result.caption}</div>` : null}
+                      </div>`
                     : html`<div class="plan">${result.output}</div>`}`}
                 ${result.output_kind === "video_file" && html`
                   ${mediaSrc(result)
@@ -357,13 +500,13 @@
                 ${result.output_kind === "audio_file" && html`
                   ${mediaSrc(result)
                     ? html`<audio src=${mediaSrc(result)} controls preload="metadata" style=${{width:"100%",borderRadius:"12px",marginTop:"8px"}}></audio>`
-                    : html`<div class="plan">${result.output}</div>`}
-                  ${result.tts_info ? html`<div class="note" style=${{marginTop:"6px"}}>🎙 合成：${result.tts_info}</div>` : null}`}
+                    : html`<div class="plan">${result.output}</div>`}`}
                 ${result.output_kind === "game_html" && html`
                   ${mediaSrc(result)
-                    ? html`<iframe src=${mediaSrc(result)} sandbox="allow-scripts" title="小游戏" style=${{width:"100%",height:"420px",border:"0",borderRadius:"12px",marginTop:"8px"}}></iframe>`
+                    ? html`<iframe src=${mediaSrc(result)} sandbox="allow-scripts" scrolling="no" title="小游戏" style=${{width:"100%",height:"520px",border:"0",borderRadius:"12px",marginTop:"8px",overflow:"hidden"}}></iframe>`
                     : html`<div class="plan">${result.output}</div>`}
                   <div class="note" style=${{marginTop:"6px"}}>🎮 小游戏（点击操作；沙箱隔离运行）</div>`}
+                ${result.model_used ? html`<div class="model-hint">由 ${result.model_used} 生成</div>` : null}
                 ${result.archived && html`
                   <div class="archive-box">
                     <span class="archive-badge">✓ 已自动归档</span>
@@ -431,13 +574,13 @@
 
             ${["creative","planner","executor"].map(key => {
               const titles = {creative:"Agent1 创意（高温度，脑洞大）", planner:"Agent2 规划（低温度，严谨格式化）", executor:"Agent3 执行（图片/视频由下方 provider 覆盖）"};
-              return renderModelSlot({title:titles[key], basePath:"agents."+key, keyMap:{model:"model",base_url:"base_url",api_key:"api_key"}, config, update, fetchModels});
+              return renderModelCards({title:titles[key], basePath:"agents."+key});
             })}
 
-            <div class="section-title">图片 / 视频 模型（执行 Agent 调多模态时覆盖）</div>
+            <div class="section-title">图片 / 视频 模型（执行 Agent 调多模态时覆盖，运行时按序 fallback）</div>
             ${["image","video"].map(pkey => {
               const title = pkey === "image" ? "图片模型" : "视频模型";
-              return renderModelSlot({title, basePath:"providers."+pkey, keyMap:{model:"model",base_url:"base_url",api_key:"api_key"}, config, update, fetchModels});
+              return renderModelCards({title, basePath:"providers."+pkey});
             })}
 
             <div class="section-title">播客 TTS 语音合成（文字 → 语音）</div>
@@ -456,7 +599,7 @@
                 </datalist>
                 <div class="note">可手写任意音色名，或从下拉建议中选择</div>
               </div>
-            ${renderModelSlot({title:"TTS 模型（云端模式必填 model / base_url / api_key；未填 base_url/api_key 则默认免费 Edge TTS；云端出错自动回退 Edge）", basePath:"providers.tts", keyMap:{model:"model",base_url:"base_url",api_key:"api_key"}, config, update})}
+            ${renderModelCards({title:"TTS 模型（云端模式必填 model / base_url / api_key；未填 base_url/api_key 则默认免费 Edge TTS；云端出错自动回退 Edge）", basePath:"providers.tts", note:"未填 base_url / api_key → 免费 Edge TTS（忽略 model）；同时填了 → 用此处 model 调用云端大模型，出错自动回退 Edge。"})}
 
             <div class="paths">${"大文件目录（默认 D 盘，不写 C 盘）：\n缓存: " + (paths.cache_dir||"") + "\n产物: " + (paths.output_dir||"") + "\n上传: " + (paths.data_dir||"")}</div>
             ${saved && html`<div class="note" style="color:var(--accent-2)">✓ 已保存</div>`}
@@ -483,20 +626,40 @@
                   ${expandedId === it.id ? html`
                     <h3>概念卡</h3>
                     <div class="concept">${it.concept || ""}</div>
+                    <h3>规划输出</h3>
+                    <div class="plan">${it.plan || "(无规划输出)"}</div>
                     <h3>成品</h3>
-                    ${it.output_kind === "text" && html`<div class="concept">${it.output || ""}</div>`}
-                    ${it.output_kind === "spec_md" && html`<div class="plan"><code>${it.output || ""}</code></div>`}
-                    ${it.output_kind === "game_html" && html`
-                      ${it.local_file
-                        ? html`<iframe src=${"/output/" + it.local_file} sandbox="allow-scripts" title="小游戏" style=${{width:"100%",height:"380px",border:"0",borderRadius:"12px",marginTop:"8px"}}></iframe>`
-                        : html`<div class="plan">${it.output || ""}</div>`}`}
-                    ${(it.output_kind === "image_url" || it.output_kind === "video_file" || it.output_kind === "audio_file") && html`
-                      ${it.output_kind === "video_file"
-                        ? html`<video src=${it.local_file ? "/output/" + it.local_file : it.output} controls style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}}></video>`
-                        : it.output_kind === "audio_file"
-                          ? html`<audio src=${it.local_file ? "/output/" + it.local_file : it.output} controls preload="metadata" style=${{width:"100%",borderRadius:"12px",marginTop:"8px"}}></audio>`
-                          : html`<img src=${it.local_file ? "/output/" + it.local_file : it.output} style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}} alt="result" />`}
-                      ${it.tts_info ? html`<div class="note" style=${{marginTop:"6px"}}>🎙 合成：${it.tts_info}</div>` : null}`}
+                     ${it.output_kind === "text" && html`<div class="concept">${it.output || ""}</div>`}
+                     ${it.output_kind === "character_card" && html`
+                       <div class="character-card">
+                         ${it.image_url && html`
+                           <div class="char-frame">
+                             <img src=${mediaSrc({output: it.image_url})} alt="avatar" />
+                           </div>`}
+                         <div class="char-fields">
+                           ${parseCharFields(it.output).map(f => html`
+                             <div class="char-row">
+                               <div class="char-label">${f.label}</div>
+                               <div class="char-value">${f.value}</div>
+                             </div>`)}
+                         </div>
+                       </div>`}
+                     ${it.output_kind === "spec_md" && html`<div class="plan"><code>${it.output || ""}</code></div>`}
+                     ${it.output_kind === "game_html" && html`
+                       ${it.local_file
+                         ? html`<iframe src=${"/output/" + it.local_file} sandbox="allow-scripts" scrolling="no" title="小游戏" style=${{width:"100%",height:"520px",border:"0",borderRadius:"12px",marginTop:"8px",overflow:"hidden"}}></iframe>`
+                         : html`<div class="plan">${it.output || ""}</div>`}`}
+                     ${(it.output_kind === "image_url" || it.output_kind === "video_file" || it.output_kind === "audio_file") && html`
+                       ${it.output_kind === "video_file"
+                         ? html`<video src=${it.local_file ? "/output/" + it.local_file : it.output} controls style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}}></video>`
+                         : it.output_kind === "audio_file"
+                           ? html`<audio src=${it.local_file ? "/output/" + it.local_file : it.output} controls preload="metadata" style=${{width:"100%",borderRadius:"12px",marginTop:"8px"}}></audio>`
+                           : html`<div style=${{position:"relative",display:"inline-block",maxWidth:"100%"}}>
+                                 <img src=${it.local_file ? "/output/" + it.local_file : it.output} style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px",display:"block"}} alt="result" />
+                                 ${it.caption ? html`<div style=${{position:"absolute",left:0,right:0,bottom:0,padding:"10px 12px",borderRadius:"0 0 12px 12px",color:"#fff",background:"linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))",fontSize:20,fontWeight:700,textAlign:"center",textShadow:"0 1px 3px rgba(0,0,0,0.5)"}}>${it.caption}</div>` : null}
+                               </div>`}
+                     `}
+                     ${it.model_used ? html`<div class="model-hint">由 ${it.model_used} 生成</div>` : null}
                     <div class="archive-links">
                       <a href=${"/output/" + it.json} target="_blank" rel="noreferrer">归档 JSON</a>
                       ${it.local_file && html`<a href=${"/output/" + it.local_file} target="_blank" rel="noreferrer">本地成品</a>`}
@@ -513,7 +676,13 @@
       `;
     }
 
-    render(html`<${App} />`, document.getElementById("root"));
+    try {
+      render(html`<${App} />`, document.getElementById("root"));
+    } catch (e) {
+      console.error("Error rendering App:", e);
+      document.getElementById("root").innerHTML = 
+        '<p style="color:#e24b4a;padding:24px">渲染错误: ' + e.message + '</p>';
+    }
   </script>
 </body>
 </html>

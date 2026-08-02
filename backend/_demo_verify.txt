@@ -1,0 +1,17 @@
+node:
+/c/Users/asus/.workbuddy/binaries/node/versions/22.22.2/node
+v22.22.2
+--- symbols in demo.html ---
+312:      const KNOWN_MODEL_SECTIONS = ["agents.creative","agents.planner","agents.executor","providers.image","providers.video","providers.tts"];
+316:        KNOWN_MODEL_SECTIONS.forEach(bp => {
+317:          const k = "mf:collapse:" + bp;
+324:      const isCollapsed = (basePath) => !!collapseMap["mf:collapse:" + basePath];
+325:      const toggleCollapse = (basePath) => {
+326:        const k = "mf:collapse:" + basePath;
+338:      const renderModelCard = (basePath, idx, card, total) => {
+392:      const renderModelCards = ({ title, basePath }) => {
+402:                onClick=${() => toggleCollapse(basePath)}>${collapsed ? "展开" : "折叠"}</button>
+408:                : models.map((card, idx) => renderModelCard(basePath, idx, card, models.length))}
+538:              return renderModelCards({title:titles[key], basePath:"agents."+key});
+544:              return renderModelCards({title, basePath:"providers."+pkey});
+563:            ${renderModelCards({title:"TTS 模型（云端模式必填 model / base_url / api_key；未填 base_url/api_key 则默认免费 Edge TTS；云端出错自动回退 Edge）", basePath:"providers.tts"})}

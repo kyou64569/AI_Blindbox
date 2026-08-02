@@ -1,0 +1,25 @@
+[WinError 5] 拒绝访问。: 'app\\__pycache__\\pipeline.cpython-313.pyc.2871325570032' -> 'app\\__pycache__\\pipeline.cpython-313.pyc'PIPELINE_FAIL
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\asus\.workbuddy\binaries\python\versions\3.13.12\python.exe
+cachedir: .pytest_cache
+rootdir: D:\work\AI_Blindbox\backend
+plugins: anyio-4.14.2
+collecting ... collected 6 items
+
+tests/test_config_fallback.py::test_load_settings_migration PASSED       [ 16%]
+tests/test_config_fallback.py::test_resolve_models_fallback PASSED       [ 33%]
+tests/test_config_fallback.py::test_call_with_fallback PASSED            [ 50%]
+tests/test_config_fallback.py::test_executor_creds_empty_chain PASSED    [ 66%]
+tests/test_config_fallback.py::test_run_tts_cloud_fail_fallback_edge PASSED [ 83%]
+tests/test_config_fallback.py::test_run_tts_mock_shortcut PASSED         [100%][safe-delete][SAFE_DELETE_FAIL_CLOSED] {"target": "\\\\?\\C:\\Users\\asus\\AppData\\Local\\Temp\\pytest-of-asus\\garbage-4561628b-e5f2-4139-8e4e-cf09f3936be3", "reason": "windows-sandbox-recycle-bin-unavailable"}
+[safe-delete][SAFE_DELETE_FAIL_CLOSED] {"target": "\\\\?\\C:\\Users\\asus\\AppData\\Local\\Temp\\pytest-of-asus\\garbage-0fd8a0d6-9f4d-4054-b8af-f74f9b39d537", "reason": "windows-sandbox-recycle-bin-unavailable"}
+
+
+============================== warnings summary ===============================
+C:\Users\asus\.workbuddy\binaries\python\versions\3.13.12\Lib\site-packages\_pytest\cacheprovider.py:469
+  C:\Users\asus\.workbuddy\binaries\python\versions\3.13.12\Lib\site-packages\_pytest\cacheprovider.py:469: PytestCacheWarning: cache could not write path D:\work\AI_Blindbox\backend\.pytest_cache\v\cache\nodeids: [Errno 13] Permission denied: 'D:\\work\\AI_Blindbox\\backend\\.pytest_cache\\v\\cache\\nodeids'
+    config.cache.set("cache/nodeids", sorted(self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 6 passed, 1 warning in 8.76s =========================
+EXIT=0

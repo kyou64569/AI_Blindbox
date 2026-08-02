@@ -50,12 +50,41 @@ export default function HistoryPanel({
                         style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8 }}
                       />
                     ) : (
-                      <img
-                        src={it.local_file ? "/output/" + it.local_file : it.output}
-                        alt="result"
-                        style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8 }}
-                      />
+                      <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
+                        <img
+                          src={it.local_file ? "/output/" + it.local_file : it.output}
+                          alt="result"
+                          style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8 }}
+                        />
+                        {it.caption ? (
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              marginTop: 8,
+                              padding: "10px 12px",
+                              borderRadius: "0 0 12px 12px",
+                              color: "#fff",
+                              background:
+                                "linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))",
+                              fontSize: 20,
+                              fontWeight: 700,
+                              textAlign: "center",
+                              textShadow: "0 1px 3px rgba(0,0,0,0.5)",
+                            }}
+                          >
+                            {it.caption}
+                          </div>
+                        ) : null}
+                      </div>
                     ))}
+                  {it.model_used ? (
+                    <div style={{ marginTop: 6, fontSize: 12, color: "var(--muted, #888)" }}>
+                      由 {it.model_used} 生成
+                    </div>
+                  ) : null}
                   <div className="archive-links">
                     <a href={`/output/${it.json}`} target="_blank" rel="noreferrer">
                       归档 JSON

@@ -1,0 +1,5 @@
+cwd: D:\work\AI_Blindbox\backend
+backend exists: True
+num plain <script> blocks: 1
+  block 0: len=31477 hasApp=True
+wrote D:/work/AI_Blindbox/backend/_demo_main.js bytes 31477

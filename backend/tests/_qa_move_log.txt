@@ -1,0 +1,7 @@
+ERROR OSError: _qa_podcast_recheck.py -> [safe-delete][SAFE_DELETE_FAIL_CLOSED] {"target": "D:\\work\\AI_Blindbox\\backend\\tests\\_qa_podcast_recheck.py", "reason": "windows-sandbox-recycle-bin-unavailable"}
+ERROR OSError: _qa_verify_fix.py -> [safe-delete][SAFE_DELETE_FAIL_CLOSED] {"target": "D:\\work\\AI_Blindbox\\backend\\tests\\_qa_verify_fix.py", "reason": "windows-sandbox-recycle-bin-unavailable"}
+ERROR OSError: _qa_result.txt -> [safe-delete][SAFE_DELETE_FAIL_CLOSED] {"target": "D:\\work\\AI_Blindbox\\backend\\tests\\_qa_result.txt", "reason": "windows-sandbox-recycle-bin-unavailable"}
+ERROR OSError: _qa_podcast2.py -> [safe-delete][SAFE_DELETE_FAIL_CLOSED] {"target": "D:\\work\\AI_Blindbox\\backend\\tests\\_qa_podcast2.py", "reason": "windows-sandbox-recycle-bin-unavailable"}
+ERROR OSError: _qa_podcast_out.txt -> [safe-delete][SAFE_DELETE_FAIL_CLOSED] {"target": "D:\\work\\AI_Blindbox\\backend\\tests\\_qa_podcast_out.txt", "reason": "windows-sandbox-recycle-bin-unavailable"}
+ERROR OSError: _qa_cleanup.py -> [safe-delete][SAFE_DELETE_FAIL_CLOSED] {"target": "D:\\work\\AI_Blindbox\\backend\\tests\\_qa_cleanup.py", "reason": "windows-sandbox-recycle-bin-unavailable"}
+ERROR OSError: _qa_cleanup_log.txt -> [safe-delete][SAFE_DELETE_FAIL_CLOSED] {"target": "D:\\work\\AI_Blindbox\\backend\\tests\\_qa_cleanup_log.txt", "reason": "windows-sandbox-recycle-bin-unavailable"}

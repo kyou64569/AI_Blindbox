@@ -1,0 +1,8 @@
+KIND=audio_file
+OUT=D:\work\AI_Blindbox\output\podcast_mock_[mock_output_for_planner]_2884e0.wav
+ENDS_WAV=True
+NEQ_PLAN=True
+WAV_HEAD=b'RIFF$2\x00\x00WAVE'
+IS_WAV=True
+NO_REAL_CLOUD=True
+PODCAST_OK=True

@@ -1,0 +1,112 @@
+"Bearer {creds['api_key']}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return r.read()
+
+    def _cloud_one(creds: dict) -> "tuple[Path, str]":
+        model = (creds.get("model") or "").strip()
+        if not model:
+            raise RuntimeError(
+                "云端 TTS 未配置 model（已填写 base_url/api_key，请在 providers.tts.models[].model "
+                "填写模型名，如 gpt-4o-mini-tts）"
+            )
+        dest = out_dir / f"podcast_{_slugify(text)}_{_slugify(model)}_{uuid.uuid4().hex[:6]}.mp3"
+        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=120, max_retries=1)
+        # ① 第一发：用配置的音色（未配置则用通用默认 alloy）
+        try:
+            resp = client.audio.speech.create(model=model, voice=voice or "alloy", input=text)
+            dest.write_bytes(resp.content)
+            return dest, model
+        except Exception as e1:
+            # ② 指定音色出错 → 去掉 voice 字段再调一次，依赖厂商默认音色
+            print(
+                f"[TTS-WARN] 云端 TTS({model}) 指定音色[{voice or '未配置→alloy'}]失败："
+                f"{type(e1).__name__}: {e1}；尝试省略 voice 用默认音色重试。",
+                flush=True,
+            )
+            try:
+                data = _cloud_request_omit_voice(creds)
+                dest.write_bytes(data)
+                return dest, model
+            except Exception as e2:
+                # ③ 仍失败（多数厂商 voice 为必填，会再次 400）→ 抛出让外层回退 Edge
+                print(
+                    f"[TTS-WARN] 云端 TTS({model}) 省略 voice 重试亦失败：{type(e2).__name__}: {e2}",
+                    flush=True,
+                )
+                raise RuntimeError(
+                    f"云端 TTS 指定音色与默认音色均失败："
+                    f"指定音色[{voice or 'alloy'}]→{type(e1).__name__}: {e1}；"
+                    f"省略 voice→{type(e2).__name__}: {e2}"
+                )
+
+    # 无凭据 → 免费 Edge TTS
+    if not has_cloud_creds:
+        try:
+            dest = _edge(voice or "zh-CN-XiaoxiaoNeural")
+        except Exception as e:
+            raise RuntimeError(
+                f"[TTS 执行失败] engine=Edge TTS（免费）\n错误：{type(e).__name__}: {e}"
+            )
+        return (str(dest), "Edge TTS（免费·本地无需 Key）")
+
+    # 有凭据 → 遍历 models 按序 fallback；全部失败自动回退 Edge（不中断开盒）
+    models = _resolve_models(prov, get_settings().global_)
+    if not models:
+        try:
+            dest = _edge("zh-CN-XiaoxiaoNeural")
+        except Exception as e2:
+            raise RuntimeError(
+                f"[TTS 执行失败] 云端无可用 model 且回退 Edge 失败\n"
+                f"Edge 错误：{type(e2).__name__}: {e2}"
+            )
+        return (str(dest), "Edge TTS（云端无可用 model，已回退·免费）")
+    try:
+        dest, used_model = _call_with_fallback(models, _cloud_one, ctx="tts")
+        return (str(dest), f"{used_model}（云端大模型）")
+    except FallbackExhausted as e:
+        # 诊断：把云端真实报错打到后端日志，便于排查（不再只显示“调用失败”）
+        print(f"[TTS-WARN] 云端 TTS 全部模型失败，回退 Edge：{e}", flush=True)
+        try:
+            dest = _edge("zh-CN-XiaoxiaoNeural")
+        except Exception as e2:
+            raise RuntimeError(
+                f"[TTS 执行失败] 云端与回退 Edge 均失败\n"
+                f"fallback 错误：{e}\n"
+                f"Edge 错误：{type(e2).__name__}: {e2}"
+            )
+        return (str(dest), "Edge TTS（云端调用失败，已自动回退·免费）")
+
+
+# ---------------------------------------------------------------------------
+# 开盒结果自动归档
+# ---------------------------------------------------------------------------
+def _download_remote(url: str, out_dir: Path, stem: str, timeout: int = 120) -> str | None:
+    """尝试把远程 URL 下载到本地 output 目录。成功返回本地相对路径，失败返回 None。"""
+    try:
+        import httpx
+    except ImportError:
+        return None
+    # 推断扩展名
+    ext = ".bin"
+    m = re.search(r"\.([a-zA-Z0-9]{2,5})(?:\?|$)", url.split("/")[-1])
+    if m:
+        ext = "." + m.group(1).lower()
+    # 视频常用 mp4 兜底
+    if ext == ".bin" and "video" in url.lower():
+        ext = ".mp4"
+    dest = out_dir / f"{stem}{ext}"
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True) as hc:
+            r = hc.get(url)
+        if r.status_code == 200 and r.content:
+            dest.write_bytes(r.content)
+            return str(dest.relative_to(out_dir))
+    except Exception:
+        return None
+    return None
+
+

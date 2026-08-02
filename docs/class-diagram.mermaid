@@ -1,0 +1,83 @@
+classDiagram
+    class BlindBoxResult {
+        +str seed
+        +str concept
+        +str plan
+        +str output
+        +str output_kind
+        +dict~None~ archived
+        +str~None~ tts_info
+        +str~None~ caption
+        +str~None~ model_used
+    }
+
+    class FallbackExhausted {
+        +str ctx
+        +Exception~None~ last
+    }
+
+    class Pipeline {
+        +run_blind_box(mode_id, seed) BlindBoxResult
+        +_agent_call(agent_key, system, user, mode) str
+        +_run_executor(executor_type, plan, mode, result) str
+        +_run_game_executor(plan, mode, result) str
+        +_run_tts(plan, mode, result) tuple~str,str~
+        +archive_result(result, mode_id) dict
+    }
+
+    class Fallback {
+        +_call_with_fallback(models, call_fn, ctx) tuple~Any,str~
+    }
+
+    class TTS {
+        -_cloud_one(creds) Path
+        -_edge(voice_name) Path
+        -_cloud_request_omit_voice(creds) bytes
+    }
+
+    class API {
+        +POST /api/open(req) dict
+        +GET /api/history(mode, limit) dict
+    }
+
+    class HistoryItem {
+        +str id
+        +str mode
+        +str timestamp
+        +str seed
+        +str output_kind
+        +str concept
+        +str plan
+        +str output
+        +str~None~ tts_info
+        +str~None~ caption
+        +str local_file
+        +str json
+        +str model_used
+    }
+
+    class OpenBoxResp {
+        +str seed
+        +str concept
+        +str plan
+        +str output
+        +str output_kind
+        +str~None~ tts_info
+        +str~None~ caption
+        +dict~None~ archived
+        +str~None~ model_used
+    }
+
+    Pipeline ..> FallbackExhausted : raises
+    Pipeline ..> Fallback : uses
+    Pipeline ..> BlindBoxResult : produces
+    Pipeline ..> TTS : delegates tts
+    Pipeline ..> API : called by
+    API ..> OpenBoxResp : returns
+    API ..> HistoryItem : lists
+
+    note for BlindBoxResult "model_used 新增字段：\nNone=前端不渲染；\nMock 模式='Mock 模拟'；\n云端='creds[model]'；\nEdge='Edge TTS'"
+    note for Fallback "_call_with_fallback 新契约：\nreturn (call_fn(creds), creds['model'])"
+    note for TTS "_cloud_one 新签名：\n仅返回 Path（不再返回 model）\n模型名由 _call_with_fallback 捕获"
+    note for OpenBoxResp "/api/open 响应新增 model_used"
+    note for HistoryItem "/api/history item 新增 model_used"

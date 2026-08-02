@@ -1,0 +1,18 @@
+===== demo.html =====
+--- ModelSlot usages ---
+534:            ${renderModelSlot({title:"全局默认模型（各 Agent/Provider 留空时回退）", basePath:"global", keyMap:{model:"default_model",base_url:"default_base_url",api_key:"default_api_key"}, config, update, fetchModels})}
+--- ModelCards usages ---
+538:              return renderModelCards({title:titles[key], basePath:"agents."+key});
+544:              return renderModelCards({title, basePath:"providers."+pkey});
+563:            ${renderModelCards({title:"TTS 模型（云端模式必填 model / base_url / api_key；未填 base_url/api_key 则默认免费 Edge TTS；云端出错自动回退 Edge）", basePath:"providers.tts"})}
+
+===== ConfigPanel.jsx =====
+--- ModelSlot usages ---
+394:      <ModelSlot
+--- ModelCards usages ---
+402:      <ModelCards title="Agent1 创意（高温度，脑洞大）" basePath="agents.creative" config={config} update={update} />
+403:      <ModelCards title="Agent2 规划（低温度，严谨格式化）" basePath="agents.planner" config={config} update={update} />
+404:      <ModelCards title="Agent3 执行（文本类；图片/视频由下方 provider 覆盖）" basePath="agents.executor" config={config} update={update} />
+407:      <ModelCards title="图片模型" basePath="providers.image" config={config} update={update} />
+408:      <ModelCards title="视频模型" basePath="providers.video" config={config} update={update} />
+424:      <ModelCards

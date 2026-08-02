@@ -93,7 +93,7 @@ def list_history(mode: str | None = None, limit: int = 100):
 
     - 可选 ?mode=<id> 按模式过滤；?limit=<n> 限制条数（默认 100）。
     - 读取异常的单条跳过，不影响整体。
-    - 返回 {items: [{id,mode,timestamp,seed,output_kind,concept,output,local_file,json}], total}。
+    - 返回 {items: [{id,mode,timestamp,seed,output_kind,concept,plan,output,local_file,json,tts_info,caption}], total}。
     """
     out_dir = config.get_settings().output_dir
     files = sorted(
@@ -116,9 +116,14 @@ def list_history(mode: str | None = None, limit: int = 100):
             "seed": rec.get("seed"),
             "output_kind": rec.get("output_kind"),
             "concept": rec.get("concept"),
+            "plan": rec.get("plan"),
             "output": rec.get("output"),
             "local_file": rec.get("local_file"),
             "json": p.name,
+            "tts_info": rec.get("tts_info", ""),
+            "model_used": rec.get("model_used", ""),
+            "caption": rec.get("caption", ""),
+            "image_url": rec.get("image_url", ""),
         })
         if len(items) >= limit:
             break
@@ -266,7 +271,9 @@ def open_box(req: OpenRequest):
             "output": result.output,
             "output_kind": result.output_kind,
             "tts_info": result.tts_info,
+            "model_used": result.model_used,
             "caption": result.caption,
+            "image_url": result.image_url,
             "archived": result.archived,
         }
     except Exception as e:

@@ -1,0 +1,315 @@
+npm warn cleanup Failed to remove some directories [
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\win32-ia32',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\win32-ia32: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\win32-arm64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\win32-arm64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\sunos-x64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\sunos-x64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\openbsd-x64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\openbsd-x64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\netbsd-x64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\netbsd-x64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\linux-x64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\linux-x64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\linux-s390x',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\linux-s390x: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\linux-riscv64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\linux-riscv64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\linux-ppc64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\linux-ppc64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\linux-mips64el',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\linux-mips64el: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\linux-loong64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\linux-loong64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\linux-ia32',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\linux-ia32: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\linux-arm64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\linux-arm64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\linux-arm',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\linux-arm: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\freebsd-x64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\freebsd-x64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\freebsd-arm64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\freebsd-arm64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\darwin-x64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\darwin-x64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\darwin-arm64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\darwin-arm64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\android-x64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\android-x64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\android-arm64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\android-arm64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\android-arm',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\android-arm: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ],
+npm warn cleanup   [
+npm warn cleanup     'C:\\Users\\asus\\AppData\\Local\\npm-cache\\_npx\\50d6b1f34829f5bc\\node_modules\\@esbuild\\aix-ppc64',
+npm warn cleanup     Error: [safe-delete] 操作失败: ERROR C:\Users\asus\AppData\Local\npm-cache\_npx\50d6b1f34829f5bc\node_modules\@esbuild\aix-ppc64: Error during a `trash` operation: Unknown { description: "Some operations were aborted" }
+npm warn cleanup         at trashViaBinary (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:270:15)
+npm warn cleanup         at trashItem (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:283:9)
+npm warn cleanup         at tryTrash (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:547:5)
+npm warn cleanup         at tryRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:722:5)
+npm warn cleanup         at wrappedPromisesRm (D:\Program Files\WorkBuddy\resources\app.asar.unpacked\cli\vendor\shim\genie-safe-delete.cjs:766:15)
+npm warn cleanup         at _rm (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1352:25)
+npm warn cleanup         at [removeTrash] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:1355:21)
+npm warn cleanup         at [reifyPackages] (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:349:29)
+npm warn cleanup         at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm warn cleanup         at async Arborist.reify (C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:149:5)
+npm warn cleanup   ]
+npm warn cleanup ]
+0.21.5
+RC=0
+---
+/usr/bin/bash: line 1: ./node_modules/.bin/esbuild: No such file or directory
+RC2=127

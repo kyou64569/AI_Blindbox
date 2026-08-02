@@ -1,0 +1,56 @@
+sequenceDiagram
+    autonumber
+    actor U as 用户/前端
+    participant FE as ResultPanel / demo.html
+    participant API as main.py (/api/open)
+    participant PB as pipeline.run_blind_box
+    participant EX as _run_executor
+    participant CF as _call_with_fallback
+    participant TT as _run_tts
+    participant AR as archive_result
+
+    U->>FE: 点击「开启盲盒」(mode, seed?)
+    FE->>API: POST /api/open
+    API->>PB: run_blind_box(mode_id, seed)
+    PB->>PB: _agent_call(creative/planner)  # 中间环节，不捕获 model_used
+    PB->>EX: _run_executor(executor_type, plan, mode, result)
+
+    alt executor_type = text / image / video / game
+        EX->>CF: _call_with_fallback(models, call, ctx)
+        CF-->>EX: (out, used_model)   # 新契约：返回(结果, 模型名)
+        EX->>EX: result.model_used = used_model
+        EX-->>PB: return out
+    else executor_type = image (修复漏写调用)
+        EX->>CF: _call_with_fallback(models, call, ctx="executor:image")
+        CF-->>EX: (out, used_model)
+        EX->>EX: result.model_used = used_model
+        EX-->>PB: return out
+    else executor_type = tts
+        EX->>TT: _run_tts(plan, mode, result)  # 透传 result
+        alt mock 模式
+            TT-->>EX: (path, info); result.model_used = "Mock 模拟"
+        else 无凭据 -> Edge TTS
+            TT-->>EX: (path, info); result.model_used = "Edge TTS"
+        else 云端成功
+            TT->>CF: _call_with_fallback(models, _cloud_one, ctx="tts")
+            CF-->>TT: (dest, used_model)
+            TT->>TT: info = f"{used_model}（云端大模型）"; result.model_used = used_model
+            TT-->>EX: (str(dest), info)
+        else 云端失败 -> 回退 Edge
+            TT-->>EX: (path, info); result.model_used = "Edge TTS"
+        end
+        EX->>EX: result.tts_info = info  # 保留字段，前端不展示
+        EX-->>PB: return path
+    else executor_type = code-spec / code-cli
+        EX-->>PB: return output  # 无模型调用，model_used 保持 None
+    end
+
+    EX-->>PB: result.output 就绪（result.model_used 已填）
+    PB->>AR: archive_result(result, mode_id)
+    AR->>AR: record["model_used"] = result.model_used  # 落盘
+    AR-->>PB: result.archived
+    PB-->>API: BlindBoxResult(含 model_used)
+    API-->>FE: 200 { ... , "model_used": result.model_used }
+    FE->>FE: model_used 存在? 渲染「由 {model_used} 生成」小字 : 不渲染
+
+    Note over U,FE: 历史链路：archive 落盘 model_used → GET /api/history 回显 rec.get("model_used","") → 前端历史小字
