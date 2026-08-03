@@ -48,8 +48,8 @@ def _resolve_models(section: dict, global_: dict) -> list[dict]:
         m = (card.get("model") or "").strip()
         if not m:
             continue
-        # 验证 model 名称只包含安全字符
-        if not re.match(r'^[a-zA-Z0-9._+\-]+$', m):
+        # 验证 model 名称只包含安全字符（允许 /，Google Gemini 等模型名格式）
+        if not re.match(r'^[a-zA-Z0-9._/\-]+$', m):
             continue
         # 温度回退：卡片 -> 组级 -> global -> 默认 0.8
         temp = card.get("temperature")
@@ -57,11 +57,31 @@ def _resolve_models(section: dict, global_: dict) -> list[dict]:
             temp = gt if gt is not None else 0.8
         out.append({
             "model": m,
-            "base_url": card.get("base_url") or gb or global_.get("base_url"),
+            "base_url": _normalize_base_url(card.get("base_url") or gb or global_.get("base_url") or ""),
             "api_key": card.get("api_key") or gk or global_.get("api_key"),
             "temperature": temp,
         })
     return out
+
+
+def _normalize_base_url(base_url: str) -> str:
+    """确保 base_url 是标准 OpenAI 兼容端点。
+
+    部分供应商要求走子路径（如 https://api.stepfun.com/step_plan/v1），
+    OpenAI client 会在其后追加 /chat/completions —— 这是正确的。
+
+    仅当最后一段 /xxx/v1 的 xxx 不含下划线时，才判定为产品名前缀并截断：
+    - https://api.xxx.com/step_plan/v1  → 保留（step_plan 含下划线，是路径）
+    - https://api.xxx.com/PRODUCT/v1    → 截断为 /v1（纯字母，是产品名）
+
+    若 URL 不含 /v1 后缀，原样返回。
+    """
+    if not base_url:
+        return base_url
+    if not re.search(r'/v1/?$', base_url):
+        return base_url
+    # 仅当最后一段为「纯字母+可选连字符、不含下划线」时才截断
+    return re.sub(r'/([a-zA-Z][a-zA-Z-]*)/v1/?$', r'/v1', base_url.rstrip('/'))
 
 
 def _call_with_fallback(models: list[dict], call_fn, ctx: str = "") -> "Any":
@@ -70,11 +90,16 @@ def _call_with_fallback(models: list[dict], call_fn, ctx: str = "") -> "Any":
     仅当 call_fn 抛 Exception 才 fallback 到下一个模型；任一成功即返回（成功即停）；
     全部失败抛 FallbackExhausted。
     """
+    import logging as _log
     last: Exception | None = None
     for creds in models:
         try:
-            return call_fn(creds), creds["model"]
+            _log.info("[fallback] ctx=%s trying model=%s", ctx, creds["model"])
+            result = call_fn(creds)
+            _log.info("[fallback] ctx=%s SUCCESS with model=%s", ctx, creds["model"])
+            return result, creds["model"]
         except Exception as e:  # noqa: BLE001
+            _log.warning("[fallback] ctx=%s FAILED model=%s: %s: %s", ctx, creds["model"], type(e).__name__, str(e)[:200])
             last = e
     raise FallbackExhausted(ctx, last)
 
@@ -505,6 +530,14 @@ def _executor_creds(executor_type: str) -> list[dict]:
         preferred_key = "image"
     elif executor_type == "video":
         preferred_key = "video"
+    elif executor_type == "game":
+        preferred_key = "game"
+    elif executor_type == "tts":
+        preferred_key = "tts"
+    elif executor_type == "illustrated_story":
+        preferred_key = "image"  # 复用图片模型，逐页生成
+    elif executor_type in ("song",):
+        preferred_key = None  # 文本生成走 executor agent，TTS 在函数内单独处理
 
     # 优先取对应 provider 的模型列表
     if preferred_key:
@@ -513,24 +546,43 @@ def _executor_creds(executor_type: str) -> list[dict]:
         if pm:
             return pm
 
-    # 回退到 executor Agent 配置
+    # 回退到 executor Agent 配置（仅 image/video 直接返回，game/text 加入 fallback 链）
     exec_cfg = settings.agents.get("executor") or {}
     exec_models = _resolve_models(exec_cfg, g)
-    if exec_models:
+    if preferred_key in ("image", "video") and exec_models:
         return exec_models
 
-    # 仍为空：取另一 provider 置顶项 + global 兜底
+    # 构建多源 fallback 链
+    # 对于 image/video 类：优先取自另一 provider 的模型
+    # 对于 game/text 类：优先取自 Agent 的模型（executor 在链首，creative/planner 兜底）
     chain: list[dict] = []
-    for pk in ("image", "video"):
-        if pk == preferred_key:
-            continue
-        pv = settings.providers.get(pk) or {}
-        pm = _resolve_models(pv, g)
-        if pm:
-            chain.append(pm[0])
+    if preferred_key in ("image", "video"):
+        for pk in ("image", "video"):
+            if pk == preferred_key:
+                continue
+            pv = settings.providers.get(pk) or {}
+            pm = _resolve_models(pv, g)
+            if pm:
+                chain.append(pm[0])
+    else:
+        # exec_models 在链首（game 可用的执行器专属模型），然后 creative/planner 兜底
+        for creds in (exec_models or []):
+            if creds["model"] not in {c["model"] for c in chain}:
+                chain.append(creds)
+        for ak in ("creative", "planner"):
+            ag = settings.agents.get(ak) or {}
+            m = (ag.get("model") or "").strip()
+            if not m or m in {c["model"] for c in chain}:
+                continue
+            chain.append({
+                "model": m,
+                "base_url": _normalize_base_url(ag.get("base_url") or g.get("default_base_url") or ""),
+                "api_key": ag.get("api_key") or g.get("default_api_key"),
+                "temperature": ag.get("temperature") or 0.7,
+            })
     chain.append({
         "model": g.get("default_model", "agnes-free"),
-        "base_url": g.get("default_base_url"),
+        "base_url": _normalize_base_url(g.get("default_base_url") or ""),
         "api_key": g.get("default_api_key"),
         "temperature": None,
     })
@@ -907,6 +959,12 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
     if executor_type == "game":
         return _run_game_executor(plan, mode, result)
 
+    if executor_type == "illustrated_story":
+        return _run_illustrated_story(plan, mode, result)
+
+    if executor_type == "song":
+        return _run_song(plan, mode, result)
+
     return plan
 
 
@@ -1133,6 +1191,12 @@ def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
 
     settings = get_settings()
     models = _executor_creds("game")
+
+    # Debug: log resolved models for troubleshooting
+    import logging as _log
+    _log.warning("[game executor] resolved %d models:", len(models))
+    for i, m in enumerate(models):
+        _log.warning("  [%d] model=%s base_url=%s", i, m["model"], m["base_url"])
 
     def _save(html: str) -> str:
         dest = out_dir / f"game_{slug}_{uuid.uuid4().hex[:6]}.html"
@@ -1527,3 +1591,189 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
         "local_file": local_file,
         "timestamp": ts,
     }
+
+
+# ---------------------------------------------------------------------------
+# 插画故事：一次开盒生成多张连续画面
+# ---------------------------------------------------------------------------
+
+def _extract_pages(plan: str, max_pages: int = 6) -> list[str]:
+    """从规划输出中提取 [PAGE_1] / [PAGE_2] ... 图片 prompt 块。
+
+    按出现顺序提取，最多 max_pages 页；找不到块则把整段 plan 当作单页。
+    """
+    blocks: list[str] = []
+    for i in range(1, max_pages + 1):
+        tag = f"PAGE_{i}"
+        block = _extract_block(plan, tag)
+        if block:
+            blocks.append(block)
+    if not blocks:
+        # 无结构化标签：整段 plan 作为唯一一页
+        p = plan.strip()
+        if p:
+            blocks.append(p)
+    return blocks
+
+
+def _run_illustrated_story(
+    plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = None,
+) -> str:
+    """插画故事模式：根据规划出的多页 prompt，逐一调用图片模型生成，返回 JSON 字符串
+    `{"pages": [{"url": "...", "local": "..."}, ...], "count": N}`。
+
+    - 同一 plan 产生 2-6 张图（由 planner 的 [PAGE_N] 块数量决定，最少 2 张）。
+    - 对每张图复用 image executor 的凭据与重试逻辑。
+    - 遇到个别页面生成失败时跳过该页，不阻断整条故事。
+    - mock 模式返回包含占位图信息的 JSON。
+    """
+    pages_prompt = _extract_pages(plan, max_pages=6)
+    if len(pages_prompt) < 2:
+        #  Planner 只产出单页：拆成前后两段（概念卡前 1/2 + 后 1/2）作为两页
+        half = max(1, len(plan) // 2)
+        pages_prompt = [plan[:half].strip(), plan[half:].strip()]
+
+    settings = get_settings()
+    img_models = _executor_creds("image")
+    has_key = any(c["api_key"] for c in img_models) and not all(
+        c["api_key"] == "<USER_KEY>" for c in img_models
+    )
+    out_dir = SETTINGS.output_dir
+
+    if settings.mock or not has_key:
+        if result is not None:
+            result.model_used = "Mock 模拟"
+        mock_pages = [
+            {"prompt": p[:60], "url": None, "local": None} for p in pages_prompt
+        ]
+        return json.dumps({"pages": mock_pages, "count": len(mock_pages)}, ensure_ascii=False)
+
+    def _gen_one(prompt: str) -> dict | None:
+        """生成单张图，返回 {"url", "local"} 或 None（失败跳过）。"""
+
+        def call(creds: dict) -> str:
+            client = OpenAI(
+                base_url=creds["base_url"], api_key=creds["api_key"],
+                timeout=180, max_retries=0,
+            )
+            last_err: Exception | None = None
+            for _attempt in range(3):
+                try:
+                    resp = client.images.generate(
+                        model=creds["model"], prompt=prompt, size="1024x1024", n=1,
+                    )
+                    item = resp.data[0]
+                    if getattr(item, "url", None):
+                        return item.url
+                    if getattr(item, "b64_json", None):
+                        import base64
+                        slug = _slugify(prompt, max_len=30)
+                        img_path = out_dir / f"story_{slug}_{uuid.uuid4().hex[:6]}.png"
+                        img_path.write_bytes(base64.b64decode(item.b64_json))
+                        return str(img_path)
+                    raise RuntimeError("empty image data")
+                except APITimeoutError as e:
+                    last_err = e
+                    time.sleep(3)
+                    continue
+                except Exception as e:
+                    last_err = e
+                    break
+            raise RuntimeError(
+                f"[插画故事 单页失败] model={creds['model']}: {type(last_err).__name__}: {last_err}"
+            )
+
+        try:
+            out, used = _call_with_fallback(img_models, call, ctx="executor:illustrated_story")
+            if result is not None and result.model_used is None:
+                result.model_used = used
+            if out.startswith("http"):
+                return {"url": out, "local": None}
+            return {"url": None, "local": str(Path(out).relative_to(out_dir))}
+        except FallbackExhausted:
+            return None
+
+    pages: list[dict] = []
+    failed_count = 0
+    for i, prompt in enumerate(pages_prompt):
+        info = _gen_one(prompt)
+        if info is not None:
+            pages.append({"prompt": prompt[:80], **info})
+        else:
+            failed_count += 1
+
+    payload = {"pages": pages, "count": len(pages)}
+    if failed_count > 0:
+        payload["failed"] = failed_count
+    return json.dumps(payload, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# 歌词 + 哼唱：先写歌词，再用 TTS 朗读合成音频
+# ---------------------------------------------------------------------------
+
+def _run_song(
+    plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = None,
+) -> str:
+    """歌曲模式：规划输出包含 [LYRICS] 块的歌词文本。
+
+    执行流程：
+    1. 提取 [LYRICS] 块作为歌词；若不存在则把整段 plan 当作歌词。
+    2. 清理歌词（去掉 BGM 标记、停顿标记等不适合朗读的内容）。
+    3. 调用 TTS 将歌词合成为音频文件。
+    4. 返回 JSON：{"audio": 本地相对路径, "lyrics": 歌词文本, "tts_info": "..."}。
+
+    mock 模式返回占位 JSON。
+    """
+    raw_lyrics = _extract_block(plan, "LYRICS") or plan.strip()
+    # 清理：去掉 BGM / 停顿标记（TTS 会朗读它们）
+    lyrics = re.sub(r'\[BGM\s*[:：][^\]]*\]', '', raw_lyrics, flags=re.I)
+    lyrics = re.sub(r'\[(?:pause|停顿|暂停)\s*\d+s?\]', '', lyrics, flags=re.I)
+    lyrics = lyrics.strip()
+    if not lyrics:
+        lyrics = "（歌词为空）"
+
+    settings = get_settings()
+    if settings.mock:
+        if result is not None:
+            result.model_used = "Mock 模拟"
+            result.tts_info = "（Mock）静音占位"
+        out_dir = SETTINGS.output_dir
+        dest = out_dir / f"song_mock_{_slugify(lyrics)}_{uuid.uuid4().hex[:6]}.wav"
+        try:
+            import wave
+            with wave.open(str(dest), "w") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(16000)
+                w.writeframes(b"\x00\x00" * int(16000 * 0.4))
+        except Exception:
+            return json.dumps(
+                {"audio": "", "lyrics": lyrics, "tts_info": "（Mock）写入失败"},
+                ensure_ascii=False,
+            )
+        return json.dumps(
+            {"audio": str(dest.relative_to(out_dir)), "lyrics": lyrics, "tts_info": "（Mock）静音占位"},
+            ensure_ascii=False,
+        )
+
+    # 真实环境：调用 TTS 合成音频
+    try:
+        audio_path, tts_info = _run_tts(lyrics, mode, result)
+    except Exception as e:
+        return json.dumps(
+            {"audio": "", "lyrics": lyrics, "tts_info": f"TTS 失败: {e}"},
+            ensure_ascii=False,
+        )
+
+    rel = ""
+    if audio_path:
+        try:
+            rel = str(Path(audio_path).relative_to(SETTINGS.output_dir))
+        except ValueError:
+            rel = audio_path
+
+    return json.dumps(
+        {"audio": rel, "lyrics": lyrics, "tts_info": tts_info or ""},
+        ensure_ascii=False,
+    )

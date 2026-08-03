@@ -179,6 +179,133 @@ export default function ResultPanel({ result, onReroll }) {
             </div>
           );
         })()}
+
+      {output_kind === "image_strip" && (() => {
+        // output is a JSON string: {"pages": [{"url":...,"local":...}, ...], "count": N}
+        let pages = [];
+        try {
+          const parsed = JSON.parse(output || "{}");
+          if (Array.isArray(parsed.pages)) pages = parsed.pages;
+        } catch (e) {
+          console.error("[ResultPanel] Failed to parse image_strip JSON:", e);
+        }
+        if (pages.length === 0) {
+          return <div className="plan">（插画故事生成中，未获取到图片）</div>;
+        }
+        return (
+          <div style={{
+            display: "flex",
+            gap: 10,
+            overflowX: "auto",
+            padding: "8px 0",
+            marginTop: 8,
+            scrollSnapType: "x mandatory",
+            WebkitOverflowScrolling: "touch",
+          }}>
+            {pages.map((p, i) => {
+              const src = p.local
+                ? `/output/${p.local}`
+                : p.url && (p.url.startsWith("http") || p.url.startsWith("/output/"))
+                ? p.url
+                : p.url && !/^[a-zA-Z]:[\\/]/.test(p.url) && !p.url.startsWith("/")
+                ? `/output/${p.url}`
+                : null;
+              return (
+                <div key={i} style={{
+                  flex: "0 0 auto",
+                  width: "75%",
+                  maxWidth: 400,
+                  scrollSnapAlign: "start",
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  background: "#0b1220",
+                }}>
+                  {src ? (
+                    <img src={src} alt={`page-${i + 1}`} style={{
+                      width: "100%",
+                      display: "block",
+                      borderRadius: 12,
+                    }} />
+                  ) : (
+                    <div style={{
+                      padding: "40px 16px",
+                      color: "var(--muted, #888)",
+                      textAlign: "center",
+                      fontSize: 13,
+                    }}>
+                      第 {i + 1} 页（图片未生成）
+                    </div>
+                  )}
+                  <div style={{
+                    padding: "6px 10px",
+                    fontSize: 11,
+                    color: "var(--muted, #888)",
+                    background: "var(--panel-2, #1f232c)",
+                  }}>
+                    第 {i + 1} / {pages.length} 页
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {output_kind === "song" && (() => {
+        // output is a JSON string: {"audio": "relative/path", "lyrics": "...", "tts_info": "..."}
+        let audio = "", lyrics = "", ttsInfo = "";
+        try {
+          const parsed = JSON.parse(output || "{}");
+          audio = parsed.audio || "";
+          lyrics = parsed.lyrics || "";
+          ttsInfo = parsed.tts_info || "";
+        } catch (e) {
+          console.error("[ResultPanel] Failed to parse song JSON:", e);
+        }
+        const audioSrc = audio
+          ? (audio.startsWith("http") || audio.startsWith("/output/")
+            ? audio
+            : !/^[a-zA-Z]:[\\/]/.test(audio) && !audio.startsWith("/")
+            ? `/output/${audio}`
+            : null)
+          : null;
+        return (
+          <div style={{ marginTop: 8 }}>
+            <div style={{
+              background: "var(--panel-2, #1f232c)",
+              border: "1px solid var(--border, #2a2f3a)",
+              borderRadius: 14,
+              padding: "16px 18px",
+              whiteSpace: "pre-wrap",
+              lineHeight: 1.8,
+              fontSize: 15,
+              color: "var(--text, #e6e8ec)",
+              fontFamily: '"PingFang SC", "Microsoft YaHei", serif',
+              letterSpacing: 0.5,
+            }}>
+              {lyrics || "（歌词为空）"}
+            </div>
+            {audioSrc && (
+              <audio
+                src={audioSrc}
+                controls
+                preload="metadata"
+                style={{
+                  width: "100%",
+                  borderRadius: "12px",
+                  marginTop: 10,
+                  display: "block",
+                }}
+              />
+            )}
+            {ttsInfo && (
+              <div style={{ marginTop: 4, fontSize: 12, color: "var(--muted, #888)" }}>
+                {ttsInfo}
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {model_used ? (
         <div style={{ marginTop: 6, fontSize: 12, color: "var(--muted, #888)" }}>
           由 {model_used} 生成
