@@ -324,7 +324,7 @@ export default function ResultPanel({ result, onReroll }) {
               <a href={`/output/${archived.local_file}`} target="_blank" rel="noreferrer">
                 本地成品
               </a>
-            ) : (output_kind === "image_url" || output_kind === "video_file") ? (
+            ) : (output_kind === "image_url" || output_kind === "video_file" || output_kind === "image_strip") ? (
               <span className="archive-note">（远程成品未下载到本地，可手动保存）</span>
             ) : null}
           </div>

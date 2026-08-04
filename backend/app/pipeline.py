@@ -761,7 +761,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                     resp = client.images.generate(
                         model=creds["model"],
                         prompt=img_prompt,
-                        size="1024x1024",
+                        size=mode.get("size", "1024x1024"),
                         n=1,
                     )
                     item = resp.data[0]
@@ -1551,6 +1551,51 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
             local_file = dl
             result.output = dl  # 改写 output 为本地相对路径（前端优先读本地）
             output_val = dl
+
+    # song（歌词+哼唱）：output 是 JSON {"audio": "相对路径", "lyrics": "...", "tts_info": "..."}
+    if not local_file and isinstance(output_val, str) and result.output_kind == "song":
+        try:
+            song = json.loads(output_val)
+            rel_audio = (song.get("audio") or "").strip()
+            if rel_audio:
+                # audio 是 output 目录内的相对路径，直接标记为归档产物
+                audio_path = out_dir / rel_audio
+                if audio_path.exists():
+                    local_file = rel_audio
+                    result.output = rel_audio
+                    output_val = rel_audio
+        except Exception as e:
+            import logging
+            logging.warning("[archive] song 归档失败: %s", e)
+
+    # image_strip（插画故事）：output 是 JSON，内含多页远程 URL，逐页下载到本地
+    if not local_file and isinstance(output_val, str) and result.output_kind == "image_strip":
+        try:
+            strip = json.loads(output_val)
+            pages = strip.get("pages", []) if isinstance(strip, dict) else []
+            downloaded = 0
+            for i, pg in enumerate(pages):
+                url = pg.get("url", "")
+                if not url or not re.match(r"^https?://", url.strip()):
+                    continue
+                dl = _download_remote(
+                    url.strip(), out_dir,
+                    f"story_{rid}_p{i + 1}_{uuid.uuid4().hex[:6]}",
+                )
+                if dl:
+                    pg["local"] = dl
+                    downloaded += 1
+            if downloaded > 0:
+                # 把带本地路径的 JSON 写回 output，方便前端持久化预览
+                result.output = json.dumps(strip, ensure_ascii=False)
+                output_val = result.output
+                # 整个 story 视作一个归档产物，用第一张本地图的路径做标记
+                local_file = next(
+                    (pg["local"] for pg in pages if pg.get("local")), None
+                )
+        except Exception as e:
+            import logging
+            logging.warning("[archive] image_strip 归档失败: %s", e)
 
     # 纯文本成品（诗歌/角色卡/命名/谜题/小说等）-> 额外落一份可读 md，
     # 方便文件系统直接查看与历史面板浏览；local_file 指向该 md。
