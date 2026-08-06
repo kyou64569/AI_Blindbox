@@ -113,7 +113,7 @@ def load_settings(path: str | Path | None = None) -> Settings:
     for ak in ("creative", "planner", "executor"):
         _normalize_section(agents.get(ak))
     providers = raw.get("providers", {}) or {}
-    for pk in ("image", "video", "tts"):
+    for pk in ("image", "video", "tts", "game"):
         _normalize_section(providers.get(pk))
     return Settings(raw)
 

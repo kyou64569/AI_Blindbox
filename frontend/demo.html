@@ -79,7 +79,7 @@
       background:var(--panel-2);padding:2px 8px;border-radius:999px}
     .hist-snippet{color:var(--muted);font-size:13px;margin-top:6px;
       white-space:pre-wrap;line-height:1.5;overflow:hidden;
-      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-clamp:2}
   </style>
 </head>
 <body>
@@ -330,7 +330,7 @@
       // ---- 多模型卡片列表编辑器：折叠 / 手动排序↑↓ / 删除(无确认) / 新增 / 空提示 ----
       // 每个 section（如 agents.creative）在 config 中对应一个 models: [] 卡片数组，
       // 运行时按序 fallback（上一个失败自动用下一个）。折叠状态用 localStorage 持久化。
-      const KNOWN_MODEL_SECTIONS = ["agents.creative","agents.planner","agents.executor","providers.image","providers.video","providers.tts"];
+      const KNOWN_MODEL_SECTIONS = ["agents.creative","agents.planner","agents.executor","providers.image","providers.video","providers.tts","providers.game"];
       const [collapseMap, setCollapseMap] = useState({});
       useEffect(() => {
         const m = {};
@@ -626,10 +626,10 @@
               return renderModelCards({title:titles[key], basePath:"agents."+key});
             })}
 
-            <div class="section-title">图片 / 视频 模型（执行 Agent 调多模态时覆盖，运行时按序 fallback）</div>
-            ${["image","video"].map(pkey => {
-              const title = pkey === "image" ? "图片模型" : "视频模型";
-              return renderModelCards({title, basePath:"providers."+pkey});
+            <div class="section-title">图片 / 视频 / 游戏 模型（执行 Agent 调多模态时覆盖，运行时按序 fallback）</div>
+            ${["image","video","game"].map(pkey => {
+              const titles = {image:"图片模型", video:"视频模型", game:"小游戏模型"};
+              return renderModelCards({title:titles[pkey], basePath:"providers."+pkey});
             })}
 
             <div class="section-title">播客 TTS 语音合成（文字 → 语音）</div>

@@ -1,6 +1,5 @@
-"""盲盒管道核心：随机种子注入 -> 创意 -> (规划) -> 执行。
+"""盲盒管道核心：随机种子注入 -> 创意 -> 规划 -> 执行（3 Agent 标准管道）。
 
-- 支持 standard（3 Agent）与 lite（2 Agent）两种管道模式。
 - 支持 mock 模式：无真实 API key 时用本地规则产出，便于跑通骨架。
 - 调用统一 OpenAI 兼容接口（openai 库），模型/温度/key 全部来自配置。
 """
@@ -93,6 +92,7 @@ def _call_with_fallback(models: list[dict], call_fn, ctx: str = "") -> "Any":
     import logging as _log
     last: Exception | None = None
     for creds in models:
+        _log.warning("[fallback %s] trying model=%s base_url=%s", ctx, creds["model"], creds.get("base_url", "?"))
         try:
             _log.info("[fallback] ctx=%s trying model=%s", ctx, creds["model"])
             result = call_fn(creds)
@@ -108,7 +108,7 @@ def _call_with_fallback(models: list[dict], call_fn, ctx: str = "") -> "Any":
 class BlindBoxResult:
     seed: str
     concept: str           # Agent1 概念卡
-    plan: str              # Agent2 / 精简模式的结构化输出
+    plan: str              # Agent2 规划输出
     output: str            # 成品（文本/路径/URL）
     output_kind: str       # text | image_url | video_file | spec_md
     archived: dict | None = None   # 自动归档信息（result json 路径 + 本地成品路径）
@@ -439,7 +439,15 @@ def run_blind_box(mode_id: str, seed: str | None = None) -> BlindBoxResult:
         raise ValueError(f"未知模式: {mode_id}")
 
     seed = seed or draw_seed()
-    pipeline_mode = settings.global_.get("pipeline_mode", "standard")
+
+    # 兼容旧配置：pipeline_mode 已移除，若用户仍配置则警告
+    _pipeline_mode = settings.global_.get("pipeline_mode")
+    if _pipeline_mode and _pipeline_mode != "standard":
+        import logging as _log
+        _log.warning(
+            "配置项 pipeline_mode='%s' 已废弃，当前仅支持标准 3-Agent 管道。请将 settings.yaml 中的 pipeline_mode 删除。",
+            _pipeline_mode,
+        )
 
     # 1) 创意 Agent
     creative_prompt = mode.get("creative_prompt", "")
@@ -458,27 +466,23 @@ def run_blind_box(mode_id: str, seed: str | None = None) -> BlindBoxResult:
 
     executor_type = mode.get("executor_type", "text")
 
-    # 2) 规划 Agent（standard）或直接出结构化（lite）
-    if pipeline_mode == "standard":
-        # Text modes (novel, poem, character, naming, puzzle) skip the planner —
-        # the creative agent already produces a complete concept. Running it through
-        # the low-temperature planner would turn it into a degraded outline.
-        if executor_type in ("text",):
-            plan = concept  # pass concept directly as plan, skip the planner
-        else:
-            planner_sys = settings.agents.get("planner", {}).get("system_prompt", "")
-            planner_tpl = mode.get("planner_template", "")
-            plan_in = f"创意概念：\n{concept}\n\n请按以下格式收敛：\n{planner_tpl}"
-            dur = mode.get("duration_seconds")
-            if dur:
-                plan_in += (
-                    f"\n（系统已锁定本视频总时长约为 {dur} 秒，请据此规划分镜与标注，"
-                    f"不要自行更改总时长。）"
-                )
-            plan = _agent_call("planner", planner_sys, plan_in, mode=mode)
+    # 2) 规划 Agent
+    # Text modes (novel, poem, character, naming, puzzle) skip the planner —
+    # the creative agent already produces a complete concept. Running it through
+    # the low-temperature planner would turn it into a degraded outline.
+    if executor_type in ("text",):
+        plan = concept  # pass concept directly as plan, skip the planner
     else:
-        # lite：让创意 Agent 一段式输出结构化（这里用 mock 时直接复用）
-        plan = concept if settings.mock else concept
+        planner_sys = settings.agents.get("planner", {}).get("system_prompt", "")
+        planner_tpl = mode.get("planner_template", "")
+        plan_in = f"创意概念：\n{concept}\n\n请按以下格式收敛：\n{planner_tpl}"
+        dur = mode.get("duration_seconds")
+        if dur:
+            plan_in += (
+                f"\n（系统已锁定本视频总时长约为 {dur} 秒，请据此规划分镜与标注，"
+                f"不要自行更改总时长。）"
+            )
+        plan = _agent_call("planner", planner_sys, plan_in, mode=mode)
 
     # 3) 执行 Agent
     output_kind = mode.get("output_handler", "text")
@@ -540,11 +544,15 @@ def _executor_creds(executor_type: str) -> list[dict]:
         preferred_key = None  # 文本生成走 executor agent，TTS 在函数内单独处理
 
     # 优先取对应 provider 的模型列表
+    pm: list[dict] = []
     if preferred_key:
         pv = settings.providers.get(preferred_key) or {}
         pm = _resolve_models(pv, g)
         if pm:
-            return pm
+            # image/video/tts：直接返回 provider 模型
+            if preferred_key in ("image", "video", "tts"):
+                return pm
+            # game 继续往下构建完整 fallback 链
 
     # 回退到 executor Agent 配置（仅 image/video 直接返回，game/text 加入 fallback 链）
     exec_cfg = settings.agents.get("executor") or {}
@@ -565,18 +573,25 @@ def _executor_creds(executor_type: str) -> list[dict]:
             if pm:
                 chain.append(pm[0])
     else:
-        # exec_models 在链首（game 可用的执行器专属模型），然后 creative/planner 兜底
+        # game 模式：provider 模型 + executor + creative/planner + global 兜底
+        if pm:
+            for creds in pm:
+                norm_url = _normalize_base_url(creds["base_url"])
+                if (creds["model"], norm_url) not in {(c["model"], _normalize_base_url(c["base_url"])) for c in chain}:
+                    chain.append(creds)
         for creds in (exec_models or []):
-            if creds["model"] not in {c["model"] for c in chain}:
+            norm_url = _normalize_base_url(creds["base_url"])
+            if (creds["model"], norm_url) not in {(c["model"], _normalize_base_url(c["base_url"])) for c in chain}:
                 chain.append(creds)
         for ak in ("creative", "planner"):
             ag = settings.agents.get(ak) or {}
             m = (ag.get("model") or "").strip()
-            if not m or m in {c["model"] for c in chain}:
+            norm_url = _normalize_base_url(ag.get("base_url") or g.get("default_base_url") or "")
+            if not m or (m, norm_url) in {(c["model"], _normalize_base_url(c["base_url"])) for c in chain}:
                 continue
             chain.append({
                 "model": m,
-                "base_url": _normalize_base_url(ag.get("base_url") or g.get("default_base_url") or ""),
+                "base_url": norm_url,
                 "api_key": ag.get("api_key") or g.get("default_api_key"),
                 "temperature": ag.get("temperature") or 0.7,
             })
@@ -1176,6 +1191,135 @@ def _mock_game_html(plan: str) -> str:
     return template.replace("__TITLE__", name)
 
 
+def _call_two_pass_game(
+    models: list[dict],
+    system_prompt: str,
+    user_prompt: str,
+    save_fn,
+) -> "tuple[str, str]":
+    """两步式游戏生成：骨架 → 脚本，每段精短，避免截断。
+
+    Step 1: 生成 HTML 骨架（head + CSS + body + canvas + 占位script标签）
+    Step 2: 给定骨架，生成游戏逻辑（<script>...</script>）
+    拼接后保存。
+    """
+    import logging as _log
+
+    # ---- Step 1: 骨架 ----
+    skel_sys = (
+        "你是前端工程师。只输出游戏的 HTML 骨架——不写任何 JavaScript 游戏逻辑。\n"
+        "输出要求：\n"
+        "1. <!DOCTYPE html><html><head><meta charset=UTF-8><style>CSS样式</style></head>\n"
+        "2. <body> 内只放 <canvas id=\"gc\"></canvas> 和 <div id=\"hud\">得分:0</div>\n"
+        "3. CSS 控制全屏自适应、颜色主题、字体，不超过 40 行。\n"
+        "4. 在 </style> 之后放一个空的 <script></script> 占位（内容只写 // GAME_LOGIC）。\n"
+        "5. 以 </html> 结尾。总输出不超过 1500 字符。"
+        "不要任何解释，直接输出源码。"
+    )
+    skel_user = f"游戏需求：{user_prompt}\n\n请输出 HTML 骨架（不含游戏逻辑的JS）："
+
+    skel_call = _make_simple_call(models, skel_sys, skel_user)
+    skel, skel_model = _call_with_fallback(models, skel_call, ctx="game:skel")
+    skeleton = _extract_html(skel).strip()
+    # 验证必需元素：CSS 闭合、HTML 闭合、canvas 元素、hud 元素
+    if not skeleton:
+        raise RuntimeError("骨架生成失败（返回空内容）")
+    if "</style>" not in skeleton.lower():
+        raise RuntimeError("骨架生成不完整（缺 CSS 闭合标签 </style>）")
+    if "</html>" not in skeleton.lower():
+        raise RuntimeError("骨架生成不完整（缺 HTML 闭合标签 </html>）")
+    if 'id="gc"' not in skeleton and "id='gc'" not in skeleton:
+        raise RuntimeError("骨架生成不完整（缺 canvas 元素 id=\"gc\"）")
+    if 'id="hud"' not in skeleton and "id='hud'" not in skeleton:
+        raise RuntimeError("骨架生成不完整（缺 div 元素 id=\"hud\"）")
+
+    _log.warning("[game two-pass] skeleton ready (%d chars) via %s", len(skeleton), skel_model)
+
+    # ---- Step 2: 脚本 ----
+    script_sys = (
+        "你是游戏脚本工程师。只输出 <script>...</script> 块内的 JS 游戏逻辑。\n"
+        "要求：\n"
+        "1. 状态初始化、update/draw 循环、鼠标/键盘输入、计分、重来按钮。\n"
+        "2. Canvas 元素 id 为 \"gc\"，得分显示在 id=\"hud\" 的 div 中。\n"
+        "3. 变量名用简短英文字母，总 JS 不超过 120 行，总输出不超过 2500 字符。\n"
+        "4. 输出格式：第一行 <script>，最后一行 </script>，中间是 JS 代码。\n"
+        "5. requestAnimationFrame 驱动主循环，最后一帧调用它形成循环。\n"
+        "不要任何解释，直接输出 <script>...JS代码...</script>。"
+    )
+    script_user = f"HTML 骨架如下，请生成游戏逻辑脚本：\n\n{skeleton}"
+
+    script_call = _make_simple_call(models, script_sys, script_user)
+    script, script_model = _call_with_fallback(models, script_call, ctx="game:script")
+    # 提取 <script>...</script> 块
+    import re as _re
+    m = _re.search(r"<script[^>]*>([\s\S]*?)</script>", script, flags=_re.I)
+    if m:
+        js_code = m.group(1).strip()
+    else:
+        js_code = script.strip()
+    if not js_code or "// GAME_LOGIC" in js_code:
+        raise RuntimeError("脚本生成失败（空或仅有占位符）")
+
+    _log.warning("[game two-pass] script ready (%d chars) via %s", len(js_code), script_model)
+
+    # ---- 拼接 ----
+    # 更健壮的替换策略：先尝试精确替换占位符，失败则替换整个 script 标签内容
+    if "// GAME_LOGIC" in skeleton:
+        full_html = skeleton.replace("// GAME_LOGIC", js_code)
+    else:
+        # 回退策略：查找空的 <script> 标签并替换其内容
+        import re as _re
+        # 匹配 <script>...</script> 或 <script /> 等形式
+        pattern = r'(<script[^>]*>)(\s*//?\s*GAME_LOGIC\s*|)(</script>)'
+        match = _re.search(pattern, skeleton, flags=_re.I | _re.DOTALL)
+        if match:
+            full_html = skeleton[:match.start()] + match.group(1) + js_code + match.group(3) + skeleton[match.end():]
+        else:
+            # 最后回退：在 </body> 前插入 script
+            if "</body>" in skeleton:
+                full_html = skeleton.replace("</body>", f"<script>{js_code}</script></body>")
+            else:
+                # 极端回退：直接追加
+                full_html = skeleton + f"<script>{js_code}</script></html>"
+                _log.warning("[game two-pass] skeleton 缺少 </body>，采用追加方式插入脚本")
+
+    path = save_fn(full_html)
+    _log.warning("[game two-pass] stitched %d chars", len(full_html))
+    return path, f"{skel_model}+{script_model}" if skel_model != script_model else script_model
+
+
+def _make_simple_call(models: list[dict], sys_prompt: str, usr_prompt: str):
+    """创建一个简单的 call 闭包，用于两步式生成。"""
+    def call(creds: dict) -> str:
+        import time
+        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=120, max_retries=0)
+        # 使用配置的温度，默认 0.6
+        temp = creds.get("temperature", 0.6)
+        for attempt in range(2):
+            try:
+                resp = client.chat.completions.create(
+                    model=creds["model"],
+                    temperature=temp,
+                    messages=[
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": usr_prompt},
+                    ],
+                )
+                content = (resp.choices[0].message.content or "").strip()
+                if content:
+                    return content
+                if attempt == 0:
+                    time.sleep(2)
+                    continue
+                raise RuntimeError("模型返回空内容")
+            except Exception as e:
+                if attempt == 0:
+                    time.sleep(2)
+                    continue
+                raise e
+    return call
+
+
 def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = None) -> str:
     """小游戏模式：基于规划出的游戏需求(plan)，用代码模型生成一份可直接在浏览器运行的
     单文件 HTML5 小游戏（HTML+CSS+JS 内联），落盘 output/ 并返回绝对路径。支持多模型按序 fallback。
@@ -1213,27 +1357,80 @@ def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
         return _save(_mock_game_html(plan))
 
     system_prompt = (
-        "你是一位资深前端游戏工程师。请基于给定的小游戏需求，产出一份"
-        "【完整、可直接在浏览器打开即玩】的单文件 HTML5 小游戏。\n"
-        "【硬性要求】：\n"
-        "1. 只输出一个 HTML 文件，内含 <style> 与 <script>，不要任何外部依赖（不引用 cdn / 图片 / 字体文件）。\n"
-        "2. 游戏必须真实可玩：有清晰目标、可操作的玩法（鼠标点击 / 键盘均可）、计分或胜负判定、重新开始按钮。\n"
-        "3. 使用 Canvas 或纯 DOM 均可，画面美观、配色符合需求里的风格描述。\n"
-        "4. 代码必须自包含、无语法错误、无未定义变量，打开即可运行。\n"
-        "5. 中文界面（标题、提示、得分、按钮均用中文）。\n"
-        "6. 绝对不要输出任何解释、不要 Markdown 标题、不要把代码包在 ```html 围栏里——直接输出 HTML 源码本身。\n"
-        "7. 游戏页面必须完全自适应 iframe 容器，不得出现滚动条：html/body 必须 100% 宽高、overflow:hidden；"
-        "所有 UI 元素必须使用相对单位或根据窗口 resize 动态计算，确保在 360×420 到全屏之间都能完整显示且不溢出。\n"
+        "你是一位擅长快速写代码的前端工程师。请基于小游戏需求，产出"
+        "【完整可玩的单文件 HTML5 小游戏】。\n"
+        "【第一优先级——长度硬约束】CSS≤60 行、JS≤150 行、整体≤250 行、总字符≤5000。"
+        "只实现核心玩法（移动/点击/计分/重来），不要加冗余的动画/粒子/特效/音效/菜单。"
+        "控制台日志全部删掉。变量名用单字母或无意义短名（a,b,c...）节省长度。\n\n"
+        "【其余要求】：\n"
+        "1. 无外部依赖、Canvas 或纯 DOM 均可。\n"
+        "2. 可操作：鼠标/键盘、计分、重新开始按钮。\n"
+        "3. 中文界面。\n"
+        "4. 自适应 iframe：html/body 100%宽高 overflow:hidden。\n"
+        "5. 绝对禁止 pointer-events:none。\n"
+        "6. 直接输出 <!DOCTYPE html> 开头，不要 ```html 围栏，不要任何解释。\n"
+        "7. <script> 开头写：var keys={};window.addEventListener('keydown',function(e){keys[e.key]=true;e.preventDefault();});window.addEventListener('keyup',function(e){keys[e.key]=false;});var cv=document.querySelector('canvas');if(cv){cv.style.cursor='crosshair';cv.addEventListener('click',function(e){var r=cv.getBoundingClientRect();cv._mx=(e.clientX-r.left)*(cv.width/r.width);cv._my=(e.clientY-r.top)*(cv.height/r.height);cv._mdown=true;});cv.addEventListener('mousemove',function(e){var r=cv.getBoundingClientRect();cv._mx=(e.clientX-r.left)*(cv.width/r.width);cv._my=(e.clientY-r.top)*(cv.height/r.height);});}\n"
+        "   游戏逻辑用 keys['ArrowUp']/keys['w'] 检测键盘、cv._mdown/cv._mx/cv._my 检测鼠标。\n"
     )
     user_prompt = (
         f"请基于以下小游戏需求，生成完整可玩的单文件 HTML5 小游戏源码：\n\n{plan}\n\n"
         "（请直接开始输出 <!DOCTYPE html>，不要任何前后缀说明。）"
     )
 
+    def _patch_game_html(html: str) -> str:
+        """修复 AI 生成游戏中常见的交互缺失问题。"""
+        import re as _re
+
+        # 1) 移除 pointer-events:none
+        html = _re.sub(
+            r'pointer-events\s*:\s*none\b',
+            'pointer-events: auto',
+            html, flags=_re.IGNORECASE,
+        )
+
+        # 2) 检测是否缺少 addEventListener（AI 生成时常忘绑定交互事件）
+        has_listener = bool(_re.search(r'addEventListener', html, flags=_re.IGNORECASE))
+        if not has_listener:
+            # 注入基础输入桥接层，暴露给游戏逻辑调用
+            bridge = (
+                '\n<script>\n'
+                '(function(){\n'
+                '  var keys={};\n'
+                '  window.addEventListener("keydown",function(e){keys[e.key]=true;e.preventDefault();});\n'
+                '  window.addEventListener("keyup",function(e){keys[e.key]=false;});\n'
+                '  window._getKeys=function(){return keys;};\n'
+                '  window._isKey=function(k){return !!keys[k];};\n'
+                '  var cv=document.querySelector("canvas");\n'
+                '  if(cv){cv.style.pointerEvents="auto";'
+                '  cv.addEventListener("click",function(e){var r=cv.getBoundingClientRect();'
+                '  cv._mx=(e.clientX-r.left)*(cv.width/r.width);'
+                '  cv._my=(e.clientY-r.top)*(cv.height/r.height);'
+                '  cv._mclick=true;});'
+                '  cv.addEventListener("pointermove",function(e){var r=cv.getBoundingClientRect();'
+                '  cv._mx=(e.clientX-r.left)*(cv.width/r.width);'
+                '  cv._my=(e.clientY-r.top)*(cv.height/r.height);});}'
+                '  window._canvasClick=function(){var c=document.querySelector("canvas");return c?c._mclick:false;};'
+                '  window._clearCanvasClick=function(){var c=document.querySelector("canvas");if(c)c._mclick=false;};'
+                '  window._getCanvasPos=function(){var c=document.querySelector("canvas");'
+                '  return c?{x:c._mx||0,y:c._my||0}:{x:0,y:0};};\n'
+                '})();\n'
+                '</script>\n'
+            )
+            html = html.replace('</body>', bridge + '</body>', 1)
+            if '</body>' not in html:
+                html += bridge
+
+        # 3) 确保 canvas 有合适的 cursor（仅在 canvas 元素本身没有 cursor 样式时添加）
+        if '<canvas' in html and not _re.search(r'<canvas[^>]*cursor\s*:', html, flags=_re.I):
+            html = html.replace('<canvas', '<canvas style="cursor: crosshair"', 1)
+
+        return html
+
     def call(creds: dict) -> str:
         client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=180, max_retries=0)
-        # 单模型内部：最多 2 次尝试（内容为空则重试），异常或仍无 HTML 则触发跨模型 fallback
+        # 单模型内部：最多 2 次尝试（截断/不完整则重试），异常或仍不完整则触发跨模型 fallback
         last_err: Exception | None = None
+        local_user_prompt = user_prompt
         for attempt in range(2):
             try:
                 resp = client.chat.completions.create(
@@ -1241,14 +1438,31 @@ def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
                     temperature=0.7,
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
+                        {"role": "user", "content": local_user_prompt},
                     ],
                 )
                 content = (resp.choices[0].message.content or "").strip()
+                # 诊断日志：记录每个模型的原始输出（前 300 字 + 最后一行的截断标记）
+                tail = content[-120:] if len(content) > 120 else content
+                has_html_start = bool(re.search(r'<!DOCTYPE|<html|<canvas|<script', content, flags=re.I))
+                has_html_end = "</script>" in content.lower() and content.rstrip().endswith(("</html>", "</script>"))
+                _log.warning(
+                    "[game diag] model=%s attempt=%d len=%d has_html_start=%s has_html_end=%s head=%r tail=%r",
+                    creds["model"], attempt, len(content),
+                    has_html_start, has_html_end,
+                    content[:120].replace("\n", "\\n"),
+                    tail.replace("\n", "\\n"),
+                )
                 html = _extract_html(content)
+                # 完整性校验：必须有 </script> 闭合（保证 JS 完整），
+                # 不强求 </html>（有些模型生成格式不严格但游戏可玩）
+                if html and "</script>" in html.lower():
+                    return _save(_patch_game_html(html))
                 if html:
-                    return _save(html)
-                last_err = RuntimeError("模型未返回可用的 HTML 内容")
+                    last_err = RuntimeError("HTML JS 未闭合（缺 </script>），可能被截断")
+                    local_user_prompt = user_prompt + "\n\n【严重警告】上次输出又长又没写完。这次必须极简：去掉所有特效/音效/动画/多余样式，只保留核心玩法（移动+得分+重来）。JS 控制在 100 行以内，总代码控制在 200 行以内。必须输出完整闭合的 <script>...</script>。"
+                else:
+                    last_err = RuntimeError("模型未返回可用的 HTML 内容")
                 if attempt == 0:
                     time.sleep(2)
                     continue
@@ -1262,16 +1476,28 @@ def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
         # 该模型两次均失败 -> 抛异常触发跨模型 fallback
         raise RuntimeError(f"game 模型 {creds['model']} 生成失败: {last_err}")
 
-    # 所有模型都失败 -> 落一份占位可玩游戏，保证开盒不中断
+    # === 主流程：先单步，失败则两步式，再失败才降级到 Mock ===
     try:
         out, used = _call_with_fallback(models, call, ctx="executor:game")
         if result is not None:
             result.model_used = used
         return out
     except FallbackExhausted:
+        pass  # 单步失败 → 尝试两步式
+
+    # --- 两步式生成：骨架 + 脚本，每段精短避免截断 ---
+    try:
+        _log.warning("[game two-pass] single-pass failed, trying two-pass approach")
+        out, used = _call_two_pass_game(models, system_prompt, user_prompt, _save)
         if result is not None:
-            result.model_used = "Mock 模拟"
-        return _save(_mock_game_html(plan))
+            result.model_used = used
+        return out
+    except FallbackExhausted:
+        pass  # 两步式也失败 → Mock
+
+    if result is not None:
+        result.model_used = "Mock 模拟"
+    return _save(_mock_game_html(plan))
 
 
 def _run_tts(plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = None) -> tuple[str, str]:
