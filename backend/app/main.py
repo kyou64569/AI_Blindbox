@@ -4,9 +4,11 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
+import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +19,35 @@ from . import config
 from . import pipeline
 
 app = FastAPI(title="AI 盲盒", version="0.1.0")
+
+# 简单的内存速率限制器
+_rate_limit_store: dict[str, list[float]] = {}
+_rate_limit_lock = threading.Lock()
+_rate_limit_key_ttl = 3600  # 每 IP 无请求 1 小时后自动清理
+_RATE_LIMIT_WINDOW = 60  # 60秒窗口
+_RATE_LIMIT_MAX_REQUESTS = 3  # 每窗口最多3次请求
+
+
+def _check_rate_limit(client_ip: str) -> bool:
+    """检查客户端IP是否超过速率限制。返回True表示允许请求，False表示超限。"""
+    current_time = time.time()
+    with _rate_limit_lock:
+        # 清理过期 key（超过 TTL 无请求的 IP）
+        stale = [ip for ip, ts in _rate_limit_store.items() if not ts or (current_time - ts[-1] > _rate_limit_key_ttl)]
+        for ip in stale:
+            del _rate_limit_store[ip]
+
+        # 清理过期的请求记录
+        _rate_limit_store[client_ip] = [
+            t for t in _rate_limit_store.get(client_ip, [])
+            if current_time - t < _RATE_LIMIT_WINDOW
+        ]
+        # 检查是否超限
+        if len(_rate_limit_store[client_ip]) >= _RATE_LIMIT_MAX_REQUESTS:
+            return False
+        # 记录本次请求
+        _rate_limit_store[client_ip].append(current_time)
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +155,7 @@ def list_history(mode: str | None = None, limit: int = 100):
             "model_used": rec.get("model_used", ""),
             "caption": rec.get("caption", ""),
             "image_url": rec.get("image_url", ""),
+            "env_warning": rec.get("env_warning", ""),
         })
         if len(items) >= limit:
             break
@@ -235,11 +267,9 @@ def save_config(req: SaveConfigRequest):
     won't see half-updated state.
     """
     with _config_lock:
-        import yaml
         with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
             yaml.safe_dump(req.config, f, allow_unicode=True, sort_keys=False)
-        new_settings = config.load_settings(SETTINGS_PATH)
-        config.set_settings(new_settings)
+        config.set_settings(config.load_settings(SETTINGS_PATH))
     return {"ok": True}
 
 
@@ -260,11 +290,45 @@ def generate_seed(req: GenerateSeedRequest):
     return {"seed": seed}
 
 
+@app.post("/api/seed/refresh-all")
+def refresh_all_seeds(request: Request):
+    """一键刷新全部种子池——每维度调用 generate_pool_seed 逐个生成新种子。
+
+    保持各维度种子数量不变，将所有旧种子替换为独立随机生成的新种子。
+    返回 {pool: {dim: [seed, ...]}}，前端可直接 setConfig 使用。
+    """
+    # 速率限制：防止恶意调用消耗API配额
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail=f"请求过于频繁，请在 {_RATE_LIMIT_WINDOW} 秒后再试"
+        )
+
+    try:
+        new_pool = pipeline.refresh_all_seeds()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    # 同步写入 settings.yaml —— 单次持锁，覆盖「读 raw → 写盘 → 重载 → 热更新单例」全过程。
+    # config.set_settings 内部使用独立的 RLock，与 _config_lock 无嵌套关系，不会死锁。
+    # pipeline 侧统一通过 config.get_settings() 读取，无需再做模块级裸赋值。
+    with _config_lock:
+        raw = config.get_settings().raw
+        if "randomness" not in raw:
+            raw["randomness"] = {}
+        raw["randomness"]["pool"] = new_pool
+        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+            yaml.safe_dump(raw, f, allow_unicode=True, sort_keys=False)
+        config.set_settings(config.load_settings(SETTINGS_PATH))
+    return {"pool": new_pool}
+
+
 @app.post("/api/open")
 def open_box(req: OpenRequest):
     try:
         result = pipeline.run_blind_box(req.mode, req.seed)
         return {
+            "mode": req.mode,
             "seed": result.seed,
             "concept": result.concept,
             "plan": result.plan,
@@ -274,6 +338,7 @@ def open_box(req: OpenRequest):
             "model_used": result.model_used,
             "caption": result.caption,
             "image_url": result.image_url,
+            "env_warning": result.env_warning,
             "archived": result.archived,
         }
     except Exception as e:

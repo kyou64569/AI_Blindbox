@@ -337,7 +337,6 @@ export default function ConfigPanel() {
     <div>
       <div className="section-title">全局配置</div>
       <div className="config-form">
-        <Field label="管道模式 (standard / lite)" value={g.pipeline_mode} onChange={(v) => update("global.pipeline_mode", v)} />
         <div className="form-row">
           <label>
             <input

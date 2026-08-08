@@ -471,6 +471,155 @@ modes:
     只输出以上五块，不要额外解释。'
   executor_type: text
   output_handler: text
+- id: parallel_universe
+  name: 平行宇宙
+  use_planner: true
+  passthrough: true
+  creative_prompt: 构思一个"如果...会怎样"的平行宇宙场景——将抽到的随机种子中的某一个条件反转或改写，推演一个截然不同的世界线。要有创意、有反差、有趣味。
+  planner_template: '基于抽到的随机种子，选择其中一个条件进行反转或改写，生成一段平行宇宙描述。按以下格式输出四段内容，每段以中文引导词开头：
+
+    原世界：一句话描述原本的世界设定
+    反转点：指出哪个条件被反转了（一句话）
+    平行宇宙：200-300字，描述反转后的世界是什么样的，有什么不同，会发生什么有趣的事
+    如果在那里：50字以内，用第二人称描述你在那个平行宇宙中的生活
+
+    不要输出任何标签符号（如【】），直接输出正文内容，段落之间空一行。不要额外解释。'
+  executor_type: text
+  output_handler: text
+- id: ai_fortune
+  name: AI 算命
+  use_planner: true
+  passthrough: true
+  creative_prompt: 基于抽到的随机种子，构思一个趣味十足的运势/命理/签文主题。可以是星座、生肖、塔罗、八字、星盘、命格等任何占卜形式，但要与种子元素巧妙结合。
+  planner_template: '你是AI命理大师，结合抽到的随机种子，生成一份趣味运势。按以下格式输出六段内容，每段以中文引导词开头：
+
+    命格/签号：一个诗意的命格或签文名（如"赛博孤星命""深海桃花签"）
+    运势总览：用一句话概括整体运势
+    分项运势：每项用⭐评级（1-5颗），共5项——事业运、桃花运、财运、健康运、幸运运（最奇特的好运），每项一句话
+    今日宜忌：宜一件、忌一件，各一句话，要有梗
+    AI 批注：50字以内，用幽默语气写一句命理点评
+
+    不要输出任何标签符号（如【】），直接输出正文内容，段落之间空一行。不要额外解释。'
+  executor_type: text
+  output_handler: text
+- id: horror_onesentence
+  name: 恐怖一句话
+  use_planner: true
+  passthrough: true
+  creative_prompt: 构思一个极简的中文恐怖/悬疑微故事，要有出人意料的转折或细思极恐的结尾。结合抽到的随机种子决定恐怖的方向（心理恐怖、超自然、都市传说、克苏鲁等）。
+  planner_template: '生成一个中文恐怖微故事。要求：
+    1. 第一句用环境或动作铺垫恐怖氛围（不直接说鬼/怪物）
+    2. 第二句揭示令人毛骨悚然的真相或反转
+    3. 两句话加起来不超过80字
+    4. 不出现"鬼""怪物"等直白词汇
+    5. 要让读者读完沉默3秒
+
+    直接输出两句话的正文，不要输出任何标签符号（如【氛围】【转折】），不要额外解释。'
+  executor_type: text
+  output_handler: text
+- id: comparison_pic
+  name: 对比图
+  creative_prompt: 构思一个有趣的"A vs B"对比主题——基于抽到的随机种子，选择两个形成强烈反差的元素进行对比（风格、时代、氛围、规模等）。
+  planner_template: '输出英文 image prompt，生成一张左右对比图（split comparison image）。要求：
+
+
+    左侧为 A 版本，右侧为 B 版本，中间用竖线分隔。两种版本要在主题相同的前提下呈现截然不同的风格/氛围/时代。画面简洁直观，对比强烈。末尾加 --ar 1:1。
+
+
+    直接输出 prompt，不要任何解释。'
+  executor_type: image
+  output_handler: image_url
+  size: 1024x1024
+- id: moments_screenshot
+  name: 朋友圈
+  use_planner: true
+  creative_prompt: 构思一条虚构的微信朋友圈动态——结合抽到的随机种子，可以是生活吐槽、深夜感悟、搞笑日常、旅行记录、美食分享等。要有真实感和人设感。
+  planner_template: '根据上述创意概念，输出一段英文 image prompt，生成一张逼真的微信朋友圈截图。要求：
+
+    模拟真实微信朋友圈界面：顶部昵称+头像、正文文字、1张方形配图（内容根据文案主题）、位置信息、发布时间、点赞列表（3-5个英文名字）、1-2条评论（昵称+评论文字）。整体布局、字体、间距、颜色（白色背景、灰色分割线、蓝色链接）要与真实朋友圈截图高度一致。风格写实、细节丰富，像一张真实的手机截图。末尾加 --ar 3:4 --style raw。
+
+    直接输出 prompt，不要任何解释。'
+  executor_type: image
+  output_handler: image_url
+  size: 1024x1365
+- id: quiz
+  name: 趣味测试
+  use_planner: true
+  creative_prompt: 构思一个有趣的心理测试/趣味问答主题——结合抽到的随机种子，可以是性格测试、职业配对、恋爱风格、隐藏能力、前世身份等轻松有趣的测试方向。
+  planner_template: '生成一份趣味心理测试。按以下格式输出六个部分，每段以中文引导词开头：
+
+    测试名称：一个吸引眼球的标题
+    测试简介：一句话说明这个测试能测出什么
+
+    题目1：一句问题描述
+    A. 选项（简短有趣）
+    B. 选项（简短有趣）
+    C. 选项（简短有趣）
+    D. 选项（简短有趣）
+
+    题目2：一句问题描述
+    A. 选项
+    B. 选项
+    C. 选项
+    D. 选项
+
+    题目3：一句问题描述
+    A. 选项
+    B. 选项
+    C. 选项
+    D. 选项
+
+    结果解析：
+    选A最多：一句话结果（有趣、略带夸张）
+    选B最多：一句话结果
+    选C最多：一句话结果
+    选D最多：一句话结果
+
+    不要输出任何标签符号（如【】），直接输出正文内容，段落之间空一行。不要额外解释。'
+  executor_type: quiz
+  output_handler: quiz_html
+- id: cipher
+  name: 密码暗号
+  use_planner: true
+  passthrough: true
+  creative_prompt: 构思一个神秘的密码/暗号场景——结合抽到的随机种子，可以是间谍密电、古墓铭文、外星人信号、藏宝图密文、时空胶囊信息等。要有悬疑感和解密乐趣。
+  planner_template: '生成一段密码暗号与解密线索。按以下格式输出五个部分：
+
+    【密文类型】说明使用了什么加密方式（如：凯撒密码、符号替换、镜像文字、摩斯密码、藏头诗、九宫格密码、ASCII码、二进制等）
+    【密文内容】直接输出加密后的内容（40-100个字符/符号）
+    【情境描述】50字以内，描述这段密文的来源或背景故事
+    【解密线索】2-3条线索，引导解密者破译密码（不要直接给出答案）
+    【解密答案】密文对应的原文（50字以内，一句完整的话）
+
+    不要输出任何标签符号（如【】），直接输出正文内容，段落之间空一行。不要额外解释。'
+  executor_type: text
+  output_handler: text
+- id: character_avatar
+  name: 换装捏脸
+  use_planner: true
+  creative_prompt: 构思一个独特的角色外观概念——结合抽到的随机种子，决定角色的发型、发色、眼睛、服装、配饰、表情等。可以是动漫风格、写实风格、像素风等任意方向。
+  planner_template: '根据上述角色概念，输出一段英文 image prompt，生成一张角色头像图。要求：
+
+    画面为半身像或大头照，居中构图，纯色或简洁背景。详细描述角色的发色、发型、眼睛颜色与形状、脸型、肤色、服装样式与颜色、配饰（耳环/项链/帽子等）、表情、姿态。末尾加 --ar 3:4 --style raw, anime style portrait。
+
+    直接输出 prompt，不要任何解释。'
+  executor_type: image
+  output_handler: image_url
+  size: 1024x1365
+- id: video_storyboard
+  name: 视频分镜
+  use_planner: true
+  creative_prompt: 构思一个15秒短视频创意——结合抽到的随机种子，可以是电影片段、MV、广告、搞笑短片、悬疑短片等。要有明确的视觉风格和叙事节奏。
+  planner_template: '根据上述视频创意，输出4-6个分镜 prompt。按以下格式输出：
+
+    [SHOT 1] 英文 prompt：描述画面内容、构图、镜头类型（特写/中景/全景/俯视等）、光影氛围。末尾加 --ar 16:9
+    [SHOT 2] 英文 prompt：...
+    [SHOT 3] 英文 prompt：...
+    （以此类推，共4-6个分镜）
+
+    每个分镜 prompt 独立一行，以 [SHOT N] 开头。直接输出，不要任何解释。'
+  executor_type: video_storyboard
+  output_handler: image_strip
 providers:
   image:
     base_url: https://apihub.agnes-ai.com/v1

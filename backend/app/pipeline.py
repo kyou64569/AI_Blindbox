@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import random
 import re
+import re as _re  # 历史别名：本文件同时存在 re. 与 _re. 两种写法，二者指向同一模块
 import time
+import time as _time_mod  # 历史别名，同上
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -17,7 +20,14 @@ from typing import Any
 
 from openai import OpenAI, APITimeoutError
 
-from .config import SETTINGS, get_settings
+# 注意：只导入 get_settings()，不要 `from .config import SETTINGS`。
+# 后者是 import 时的值绑定快照，config.set_settings() 热更新后本模块仍持有旧对象，
+# 曾导致改配置后 output_dir / providers / modes 不生效（需重启进程）。
+from .config import get_settings
+
+# 模块级 logger：供未在函数内 `import logging as _log` 的位置使用，
+# 避免在闭包/异常分支里因未定义 _log 触发 NameError。
+_log = logging.getLogger(__name__)
 
 
 class FallbackExhausted(Exception):
@@ -64,25 +74,35 @@ def _resolve_models(section: dict, global_: dict) -> list[dict]:
 
 
 def _normalize_base_url(base_url: str) -> str:
-    """确保 base_url 是标准 OpenAI 兼容端点。
+    """规范化 base_url，尽量不修改用户配置的自定义路径。
 
-    部分供应商要求走子路径（如 https://api.stepfun.com/step_plan/v1），
-    OpenAI client 会在其后追加 /chat/completions —— 这是正确的。
+    - 去除末尾斜杠（避免拼出双斜杠）
+    - 剥离末尾的 /models：用户常直接粘贴「模型列表」接口地址，
+      而 OpenAI 客户端会在 base_url 后追加 /chat/completions，
+      留着会拼成 /v1/models/chat/completions → HTTP 404
+    - 若剥离后是纯域名（无任何路径），追加 /v1
 
-    仅当最后一段 /xxx/v1 的 xxx 不含下划线时，才判定为产品名前缀并截断：
-    - https://api.xxx.com/step_plan/v1  → 保留（step_plan 含下划线，是路径）
-    - https://api.xxx.com/PRODUCT/v1    → 截断为 /v1（纯字母，是产品名）
-
-    若 URL 不含 /v1 后缀，原样返回。
+    保留 step_plan/v1、api.foo.com/custom/path 等完整路径不变。
     """
-    if not base_url:
-        return base_url
-    if not re.search(r'/v1/?$', base_url):
-        return base_url
-    # 仅当最后一段为「纯字母+可选连字符、不含下划线」时才截断
-    return re.sub(r'/([a-zA-Z][a-zA-Z-]*)/v1/?$', r'/v1', base_url.rstrip('/'))
+    url = (base_url or "").strip().rstrip("/")
+    if not url:
+        return ""
 
+    # 剥离末尾 /models（可能重复出现，如 .../v1/models/）；/models 不可能是有效的
+    # chat/completions 前缀，因此剥离是安全的。
+    while True:
+        stripped = _re.sub(r"/models$", "", url, flags=_re.IGNORECASE)
+        if stripped == url:
+            break
+        url = stripped.rstrip("/")
+    if not url:
+        return ""
 
+    # 已包含路径（含斜杠）则原样保留，如 https://host/step_plan/v1
+    if "/" in url.split("://", 1)[-1]:
+        return url
+    # 纯域名，追加 /v1
+    return url + "/v1"
 def _call_with_fallback(models: list[dict], call_fn, ctx: str = "") -> "Any":
     """遍历 models 调用 call_fn(creds)。
 
@@ -110,17 +130,51 @@ class BlindBoxResult:
     concept: str           # Agent1 概念卡
     plan: str              # Agent2 规划输出
     output: str            # 成品（文本/路径/URL）
-    output_kind: str       # text | image_url | video_file | spec_md
+    output_kind: str       # text | image_url | video_file | spec_md | quiz_html | video_storyboard | image_strip
     archived: dict | None = None   # 自动归档信息（result json 路径 + 本地成品路径）
     tts_info: str | None = None   # TTS 实际使用的模型标注（仅播客模式）
     caption: str | None = None    # 配文/标题（表情包/漫画等需要文字叠加的模式）
     image_url: str | None = None  # 角色卡等模式的头像/附图 URL
     model_used: str | None = None   # 最终产出模型名；mock 模式为 "Mock 模拟"；无模型调用为 None
     error: str | None = None        # 回退到 mock 的原因（仅 game 等会静默回退的模式）
+    env_warning: str | None = None  # code 模式技术栈黑名单校验命中的环境体积警告（重试后仍命中时透传前端）
+
+
+_RECENT_THEMES_FILE = "recent_themes.json"   # 最近用过的主题记录（放 output 目录，D 盘）
+_RECENT_THEMES_MAX = 3                        # 排除最近 N 次开盒的主题，避免近期连续撞同主题
+
+
+def _load_recent_themes() -> list[str]:
+    """读取最近用过的主题列表（无文件/损坏时返回空）。"""
+    try:
+        p = get_settings().output_dir / _RECENT_THEMES_FILE
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return [str(x) for x in data if str(x).strip()]
+    except Exception:
+        pass
+    return []
+
+
+def _remember_theme(theme: str) -> None:
+    """记录本次抽到的主题，只保留最近 N 个。"""
+    try:
+        p = get_settings().output_dir / _RECENT_THEMES_FILE
+        recent = [t for t in _load_recent_themes() if t != theme]
+        recent.append(theme)
+        recent = recent[-_RECENT_THEMES_MAX:]
+        p.write_text(json.dumps(recent, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def draw_seed() -> str:
-    """从 twist pool 随机抽取 per_open_draw 个种子，组合成可复现的 seed 串。"""
+    """从 twist pool 随机抽取 per_open_draw 个种子，组合成可复现的 seed 串。
+
+    theme 维度带「近期去重」：排除最近 _RECENT_THEMES_MAX 次用过的主题，
+    避免连续抽到同一主题（其余维度保持纯随机）；池被排空时回退全池。
+    """
     rnd = get_settings().randomness
     if not rnd.get("enabled", True):
         return "seed_fixed"
@@ -128,7 +182,17 @@ def draw_seed() -> str:
     pool = rnd.get("pool", {}) or {}
     picked: list[str] = []
     for dim, items in pool.items():
-        if items:
+        if not items:
+            continue
+        if dim == "theme":
+            recent = _load_recent_themes()
+            cands = [it for it in items if it not in recent]
+            if not cands:
+                cands = list(items)
+            theme = random.choice(cands)
+            _remember_theme(theme)
+            picked.append(f"{dim}:{theme}")
+        else:
             picked.append(f"{dim}:{random.choice(items)}")
     random.shuffle(picked)
     return "+".join(picked[:n])
@@ -194,6 +258,52 @@ _FALLBACK_POOL = {
 }
 
 
+def _clean_seed_text(raw: str) -> str:
+    """清洗大模型返回的种子词条：只取首行，剥除维度标签 / 编号前缀 / 引号 / 结尾标点。
+
+    generate_pool_seed 与 _generate_with_model 共用，避免两处清洗规则漂移。
+    """
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    text = text.split("\n")[0].strip()
+    # 前缀可能以任意顺序叠加（「【约束】1. x」/「1. 【约束】x」），循环剥离直到稳定
+    for _ in range(4):
+        before = text
+        # 维度标签，如「【约束】必须出现...」
+        text = _re.sub(r"^【[^】]*】\s*", "", text)
+        # 编号前缀，如「1. 」「2、」
+        text = _re.sub(r"^\d+[\.\、\s]+", "", text)
+        text = text.lstrip('"').lstrip("'").strip()
+        if text == before:
+            break
+    return text.strip('"').strip("'").strip("。").strip("、").strip()
+
+
+def _build_seed_prompt(dim: str, existing: list[str]) -> tuple[str, str, str]:
+    """构建种子生成的 system prompt、user prompt 和 forbid_hint。"""
+    dim_cn = _DIM_CN.get(dim, dim)
+    dim_guide = _get_dim_guide(dim)
+    system = (
+        "你是一个为「AI 盲盒」随机池创作新种子词条的助手。"
+        f"请根据维度【{dim_cn}】生成【一条】新颖、有画面感的中文种子词条，"
+        "适合作为创意盲盒的随机注入项。\n"
+        f"【维度定义】{dim_guide}\n"
+        "只输出这一条词条本身，不要任何解释、不要引号、不要编号、不要句号结尾。"
+        "\n\n重要：新种子必须在【具体意象 / 角色 / 动物 / 物体 / 场景元素】上与已有种子"
+        "完全不同——只保持同一维度类别即可，不要沿用已有种子里出现的任何具体意象。"
+    )
+    forbid_hint = ""
+    if existing:
+        forbid_hint = (
+            "\n\n已有种子（仅供参考，请勿沿用其中的具体角色 / 动物 / 物体，"
+            "请引入一个全新的、不同的具象元素）：\n"
+            + "\n".join(f"- {e}" for e in existing)
+        )
+    user = f"请为维度【{dim_cn}】创作一条全新的种子。{forbid_hint}"
+    return system, user, forbid_hint
+
+
 def generate_pool_seed(dim: str, existing: list[str] | None = None) -> str:
     """为指定维度生成一条「当前配置中没有」的新种子词条。
 
@@ -222,22 +332,8 @@ def generate_pool_seed(dim: str, existing: list[str] | None = None) -> str:
             or all(c["api_key"] == "<USER_KEY>" for c in models)):
         return _pick_fallback()
 
-    system = (
-        "你是一个为「AI 盲盒」随机池创作新种子词条的助手。"
-        f"请根据维度【{dim_cn}】生成【一条】新颖、具体、有画面感的中文种子词条，"
-        "适合作为创意盲盒的随机注入项。"
-        "只输出这一条词条本身，不要任何解释、不要引号、不要编号、不要句号结尾。"
-        "\n\n重要：新种子必须在【具体意象 / 角色 / 动物 / 物体 / 场景元素】上与已有种子"
-        "完全不同——只保持同一维度类别即可，不要沿用已有种子里出现的任何具体意象。"
-    )
-    forbid_hint = ""
-    if existing:
-        forbid_hint = (
-            "\n\n已有种子（仅供参考，请勿沿用其中的具体角色 / 动物 / 物体，"
-            "请引入一个全新的、不同的具象元素）：\n"
-            + "\n".join(f"- {e}" for e in existing)
-        )
-    user = f"请为维度【{dim_cn}】创作一条全新的种子。{forbid_hint}"
+    # 按维度定制指导语
+    system, user, forbid_hint = _build_seed_prompt(dim, existing)
 
     def call(creds: dict) -> str:
         client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=90, max_retries=0)
@@ -251,8 +347,7 @@ def generate_pool_seed(dim: str, existing: list[str] | None = None) -> str:
                         {"role": "user", "content": user},
                     ],
                 )
-                text = (resp.choices[0].message.content or "").strip()
-                text = text.split("\n")[0].strip().strip('"').strip("'").strip("。").strip("、").strip()
+                text = _clean_seed_text(resp.choices[0].message.content or "")
                 if not text:
                     continue
                 if _seems_anchored(text, existing):
@@ -266,6 +361,139 @@ def generate_pool_seed(dim: str, existing: list[str] | None = None) -> str:
     return out
 
 
+def refresh_all_seeds() -> dict[str, list[str]]:
+    """一键刷新所有维度的种子池——并行调用多模型生成，大幅提速且分散 API 压力。
+
+    保持各维度种子数量不变，全部替换为新种子。
+    从 executor chain（deepseek/step/gemini/agnes 四家 API）轮转模型，每维度平均分配。
+    """
+    import logging as _log
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    settings = get_settings()
+    pool = (settings.randomness or {}).get("pool", {}) or {}
+    new_pool: dict[str, list[str]] = {}
+
+    # 收集所有可用模型（去重），分散到不同 API 提供商避免限频
+    all_models = _executor_creds("game")
+    unique_models: list[dict] = []
+    seen = set()
+    for m in all_models:
+        if m["model"] not in seen and m.get("api_key"):
+            unique_models.append(m)
+            seen.add(m["model"])
+
+    # 验证是否有可用模型
+    if not unique_models:
+        _log.error("[seed refresh] No valid models available for seed generation")
+        raise RuntimeError("No valid API keys configured for seed generation")
+
+    _log.warning("[seed refresh] using %d models: %s",
+                 len(unique_models), [m["model"][:25] for m in unique_models])
+
+    # 收集所有需要生成的 (dim, index) 任务
+    tasks: list[tuple[str, int]] = []
+    for dim in ("theme", "style", "constraint", "twist"):
+        target = len(pool.get(dim, []) or [])
+        for i in range(target):
+            tasks.append((dim, i))
+
+    _log.warning("[seed refresh] total tasks: %d", len(tasks))
+
+    # 维度 → 已生成种子列表（线程安全预分配）
+    results: dict[str, list[str | None]] = {}
+    for dim in ("theme", "style", "constraint", "twist"):
+        results[dim] = [None] * len(pool.get(dim, []))
+
+    # 线程锁，保护 results 字典的并发读写
+    results_lock = threading.Lock()
+    model_idx = 0
+
+    def _gen_one(dim: str, task_i: int, creds: dict) -> tuple[str, int, str | None]:
+        # 使用锁读取已生成的种子，避免竞态条件
+        with results_lock:
+            existing = [s for s in results[dim][:task_i] if s is not None]
+        for retry in range(3):
+            try:
+                seed = _generate_with_model(dim, existing, creds)
+                seed = seed.strip()
+                # 对 theme/style 维度进行长度限制（Python字符串是Unicode，按字符截断是安全的）
+                if dim in ("theme", "style") and len(seed) > 12:
+                    seed = seed[:12]
+                if seed:
+                    return dim, task_i, seed
+            except Exception as e:
+                _log.warning("[seed refresh] dim=%s [%d/%d] model=%s retry=%d: %s",
+                             dim, task_i + 1, len(results[dim]), creds["model"], retry, str(e)[:80])
+                _time_mod.sleep(1)
+        return dim, task_i, None  # 彻底失败
+
+    # 线程池并行生成，每个任务轮转分配不同模型
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {}
+        for dim, i in tasks:
+            creds = unique_models[model_idx % len(unique_models)]
+            model_idx += 1
+            futures[executor.submit(_gen_one, dim, i, creds)] = (dim, i)
+
+        for future in as_completed(futures):
+            dim, i, seed = future.result()
+            # 使用锁写入结果，避免竞态条件
+            with results_lock:
+                if seed:
+                    results[dim][i] = seed
+                    _log.info("[seed refresh] dim=%s [%d/%d] %s", dim, i + 1, len(results[dim]), seed)
+                else:
+                    results[dim][i] = f"{dim}_{i + 1}"
+                    _log.warning("[seed refresh] dim=%s [%d/%d] → fallback", dim, i + 1, len(results[dim]))
+
+    # 收拢结果，确保即使维度为空也保留该键
+    for dim in ("theme", "style", "constraint", "twist"):
+        new_pool[dim] = [s for s in results[dim] if s is not None]
+
+    _log.warning("[seed refresh] complete: %s", {d: len(v) for d, v in new_pool.items()})
+    return new_pool
+
+
+def _generate_with_model(dim: str, existing: list[str], creds: dict) -> str:
+    """用指定的单个模型凭据生成一条种子（不 fallback）。"""
+    system, user, _ = _build_seed_prompt(dim, existing)
+
+    client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=180, max_retries=0)
+    for _attempt in range(2):
+        try:
+            resp = client.chat.completions.create(
+                model=creds["model"],
+                temperature=creds.get("temperature") or 0.95,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            )
+            text = _clean_seed_text(resp.choices[0].message.content or "")
+            if not text:
+                continue
+            # constraint/twist 是描述性短语，2 字滑窗锚定检查过于激进（中文 80 出现"必须""一个"就误判），
+            # 仅对 theme/style（具象标签）做锚定检查。
+            if dim in ("theme", "style") and _seems_anchored(text, existing):
+                continue
+            return text
+        except Exception:
+            continue
+    raise RuntimeError(f"模型 {creds['model']} 多次返回空内容或锚定")
+
+
+def _get_dim_guide(dim: str) -> str:
+    if dim == "theme":
+        return "种子是一个【主题场景/世界观标签】（如 '赛博禅院' '深海火炉'）。必须精炼：2-6 个汉字，一个核心意象组合。"
+    elif dim == "style":
+        return "种子是一个【艺术风格/视觉技法标签】（如 '故障艺术' '胶片颗粒'）。必须精炼：2-6 个汉字。"
+    elif dim == "constraint":
+        return "种子是一条【创作约束/限制条件】（如 '必须出现一只橘猫' '只用黑白灰三色' '含一段独白'）。是一条规则，不是主题意象。"
+    elif dim == "twist":
+        return "种子是一个【叙事反转/情节转折】（如 '主角其实是 AI' '结局即开场' '无声胜有声'）。是一个意外情节，不是主题意象。"
+    return "必须精炼。"
 def _agent_call(agent_key: str, system: str, user: str, mode: dict | None = None) -> str:
     """调用单个文本类 Agent（创意 / 规划）。返回文本。支持多模型按序 fallback。
 
@@ -470,7 +698,8 @@ def run_blind_box(mode_id: str, seed: str | None = None) -> BlindBoxResult:
     # Text modes (novel, poem, character, naming, puzzle) skip the planner —
     # the creative agent already produces a complete concept. Running it through
     # the low-temperature planner would turn it into a degraded outline.
-    if executor_type in ("text",):
+    # 例外：text 模式可通过 use_planner: true 启用结构化规划（如算命/朋友圈等需要固定格式的场景）
+    if executor_type in ("text",) and not mode.get("use_planner"):
         plan = concept  # pass concept directly as plan, skip the planner
     else:
         planner_sys = settings.agents.get("planner", {}).get("system_prompt", "")
@@ -494,6 +723,29 @@ def run_blind_box(mode_id: str, seed: str | None = None) -> BlindBoxResult:
         output="",
         output_kind=output_kind,
     )
+
+    # 代码模式：技术栈环境黑名单校验 —— 防止生成的 spec 引导安装重型环境
+    # （引擎/美术工具链/数据库/CUDA 等）导致磁盘空间不足。
+    # 命中黑名单 → 带警告重试 planner 一次；重试后仍命中 → spec 顶部插入
+    # 警告头，并把警告透传前端展示（result.env_warning）。
+    if executor_type in ("code-spec", "code-cli") and plan:
+        hits, warns = _check_blocked_env(plan, mode)
+        if hits:
+            retry_in = (
+                f"创意概念：\n{concept}\n\n"
+                f"上一版规划使用了禁止环境（{'、'.join(hits)}），其安装会占用大量磁盘空间。\n"
+                "请保留创意概念与世界观，改用轻量实现载体重写规划：纯 Web 单文件（HTML/CSS/JS）、"
+                "Python 标准库+少量 pip 包、Node+少量 npm 包。不要在正文中复述禁止项清单。\n\n"
+                f"请按以下格式收敛：\n{planner_tpl}"
+            )
+            retry = _agent_call("planner", planner_sys, retry_in, mode=mode)
+            hits2, warns2 = _check_blocked_env(retry, mode)
+            if not hits2:
+                plan = retry
+            else:
+                plan = _prepend_env_warning(retry, hits2)
+                result.env_warning = "\n".join(warns2)
+            result.plan = plan
 
     # 表情包 / 漫画等结构化模式：规划输出含 [IMAGE] / [CAPTION] 标签块。
     # 1) 提取 [CAPTION] 配文，单独返回供前端叠加到成品图片上（图片本身不画字）；
@@ -540,6 +792,8 @@ def _executor_creds(executor_type: str) -> list[dict]:
         preferred_key = "tts"
     elif executor_type == "illustrated_story":
         preferred_key = "image"  # 复用图片模型，逐页生成
+    elif executor_type == "video_storyboard":
+        preferred_key = "image"  # 复用图片模型，逐镜生成
     elif executor_type in ("song",):
         preferred_key = None  # 文本生成走 executor agent，TTS 在函数内单独处理
 
@@ -604,6 +858,14 @@ def _executor_creds(executor_type: str) -> list[dict]:
     return chain
 
 
+def _safe_relpath(path: str, base: "Path") -> str | None:
+    """安全地将 path 转为相对于 base 的路径；失败时返回 None。"""
+    try:
+        return str(Path(path).relative_to(base))
+    except ValueError:
+        return None
+
+
 def _slugify(text: str, max_len: int = 40) -> str:
     """从提示词/文本中提取一个文件系统友好的短文件名（保留中英文，去除非法字符）。
 
@@ -623,6 +885,80 @@ def _slugify(text: str, max_len: int = 40) -> str:
     return s or "untitled"
 
 
+# ------------------------------------------------------------------
+# code 模式：技术栈环境黑名单校验
+# ------------------------------------------------------------------
+# 目的：spec 蓝图允许宏大创意，但避免引导出安装会占用大量磁盘空间的重型环境
+# （引擎/美术工具链/数据库/CUDA 等），防止用户多抽几个代码盲盒后硬盘告急。
+# 命中黑名单 → 带警告重试 planner 一次；重试后仍命中 → spec 顶部插入警告头并透传前端。
+_DEFAULT_BLOCKED_ENV: tuple[str, ...] = (
+    "unreal", "ue5", "unity", "godot", "blender", "substance", "photoshop",
+    "fmod", "wwise", "mysql", "sql server", "postgresql", "postgres", "oracle",
+    "cuda", "docker", "android studio", "xcode", "maya", "3ds max",
+)
+
+
+def _strip_env_constraint_section(text: str) -> str:
+    """剔除 spec 中复述【技术栈环境约束】的章节，防止「禁令清单里的关键词」被误判为真实选型。
+
+    模板要求 planner 输出约束章节（含 CUDA/Unity/MySQL 等禁止项名称），模型常会原样复述，
+    若整篇扫描会把「复述禁令」当成「技术选型」误报。实际选型集中在【技术栈】等章节，
+    故扫描前删掉约束章节。兼容 【技术栈环境约束】/### 技术栈环境约束 等标题形式。
+    """
+    if not text:
+        return text
+    idx = text.lower().find("技术栈环境约束")
+    if idx == -1:
+        return text
+    line_start = text.rfind("\n", 0, idx) + 1          # 标题所在行行首
+    line_end = text.find("\n", idx)                    # 标题行行尾
+    if line_end == -1:
+        return text[:line_start]                       # 约束章节是最后一段，整体删除
+    after = text[line_end + 1:]                        # 标题行之后的正文
+    m = re.search(r"(?m)^[\s]*[【#]", after)           # 下一个章节标记行
+    end = line_end + 1 + (m.start() if m else len(after))
+    return text[:line_start] + text[end:]
+
+
+def _check_blocked_env(text: str, mode: "dict[str, Any] | None" = None) -> "tuple[list[str], list[str]]":
+    """扫描 spec 文本是否命中重型环境关键词。
+
+    - 黑名单优先取 mode.blocked_env（settings.yaml 可配），为空回退内置默认。
+    - 扫描前先剔除【技术栈环境约束】章节，避免「复述禁令清单」造成误报
+      （真实技术选型在【技术栈】等章节，不受影响）。
+    - 命中即返回；重试后仍命中才插入警告头（主流程处理）。
+    - 返回 (命中关键词列表, 警告文案列表)。
+    """
+    mode = mode or {}
+    blocked = [
+        str(x).strip().lower()
+        for x in mode.get("blocked_env", _DEFAULT_BLOCKED_ENV)
+        if str(x).strip()
+    ]
+    if not blocked:
+        blocked = list(_DEFAULT_BLOCKED_ENV)
+    text_l = _strip_env_constraint_section(text or "").lower()
+    hits = [b for b in blocked if b in text_l]
+    if not hits:
+        return [], []
+    warns = [
+        f"检测到重型环境/工具关键词：{'、'.join(hits)}，其安装可能占用大量磁盘空间。",
+        "建议优先改用轻量实现载体：纯 Web 单文件（HTML/CSS/JS）、Python 标准库+少量 pip 包、Node+少量 npm 包。",
+    ]
+    return hits, warns
+
+
+def _prepend_env_warning(spec_text: str, hits: list[str]) -> str:
+    """在 spec 顶部插入环境体积警告头（重试后仍命中的兜底）。"""
+    head = (
+        "> ⚠️ **环境体积警告**：本规格出现重型环境/工具关键词（"
+        + "、".join(hits)
+        + "），安装可能占用大量磁盘空间，请谨慎评估后再开发；"
+        "建议优先考虑轻量实现载体（Web 单文件 / Python / Node 少量依赖）。\n\n---\n\n"
+    )
+    return head + (spec_text or "")
+
+
 def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = None) -> str:
     """按执行类型产出成品。
 
@@ -636,6 +972,11 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
         models = _executor_creds("text")
         concept = result.concept if result else ""
         settings = get_settings()
+        # 透传模式：planner 输出已是最终成品，直接返回不经过执行 Agent 改写
+        if mode.get("passthrough") and plan.strip():
+            if result is not None:
+                result.model_used = "Planner 直出"
+            return plan
         has_key = any(c["api_key"] for c in models) and not all(
             c["api_key"] == "<USER_KEY>" for c in models
         )
@@ -651,20 +992,36 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                 "“我们种下的不是花，是时间。”机械橘猫的音频模块发出沙哑的电子音，随后轻轻合上了光学观测仪。"
             )
 
-        system_prompt = (
-            "你是一位优秀的主笔小说家。你的任务是根据给定的灵感概念与构思大纲，"
-            "独立创作并撰写一篇语言优美、富有叙事张力和感染力的完整文章/小说正文。"
-            "\n【严禁提示】：\n"
-            "1. 绝对不要在回答中输出“大纲”、“输出大纲”、“正文写作要求”、“标题”等结构标题或编号列表！\n"
-            "2. 绝对不要重复用户给出的规划内容！\n"
-            "3. 必须直接从正文第一句开始创作，只输出小说/文学作品的正文内容本身。"
-        )
-        user_prompt = (
-            f"请根据以下概念与大纲要求，为我创作一篇完整的文学正文（300-800字）：\n\n"
-            f"【故事灵感】：\n{concept}\n\n"
-            + (f"【故事构思与情节要点】：\n{plan}\n\n" if plan.strip() != concept.strip() else "")
-            + "请直接开始撰写正文（切勿输出任何大纲说明）："
-        )
+        # 使用 planner 的模式：planner 输出包含格式约束，执行 Agent 需严格遵守
+        if mode.get("use_planner") and plan.strip() != concept.strip():
+            system_prompt = (
+                "你是一位严格遵循格式的写手。你的任务是严格按照【构思大纲】里定义的格式、"
+                "字数、结构要求来创作正文。\n"
+                "【严禁提示】：\n"
+                "1. 绝对不要输出与要求不符的字数或格式！\n"
+                "2. 绝对不要重复大纲原文！\n"
+                "3. 严格遵守大纲中的每条规则（字数上限、禁止词汇等）。"
+            )
+            user_prompt = (
+                f"【故事灵感】：\n{concept}\n\n"
+                f"【构思大纲与格式要求】：\n{plan}\n\n"
+                "请严格按照上述大纲的格式和字数要求创作正文。直接输出正文内容："
+            )
+        else:
+            system_prompt = (
+                "你是一位优秀的主笔小说家。你的任务是根据给定的灵感概念与构思大纲，"
+                "独立创作并撰写一篇语言优美、富有叙事张力和感染力的完整文章/小说正文。"
+                "\n【严禁提示】：\n"
+                "1. 绝对不要在回答中输出“大纲”、“输出大纲”、“正文写作要求”、“标题”等结构标题或编号列表！\n"
+                "2. 绝对不要重复用户给出的规划内容！\n"
+                "3. 必须直接从正文第一句开始创作，只输出小说/文学作品的正文内容本身。"
+            )
+            user_prompt = (
+                f"请根据以下概念与大纲要求，为我创作一篇完整的文学正文（300-800字）：\n\n"
+                f"【故事灵感】：\n{concept}\n\n"
+                + (f"【故事构思与情节要点】：\n{plan}\n\n" if plan.strip() != concept.strip() else "")
+                + "请直接开始撰写正文（切勿输出任何大纲说明）："
+            )
 
         def call(creds: dict) -> str:
             client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=90, max_retries=0)
@@ -784,7 +1141,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                         return item.url
                     if getattr(item, "b64_json", None):
                         import base64
-                        out_dir = SETTINGS.output_dir
+                        out_dir = get_settings().output_dir
                         img_path = out_dir / f"char_{_slugify(appearance_cn)}_{uuid.uuid4().hex[:6]}.png"
                         img_path.write_bytes(base64.b64decode(item.b64_json))
                         return str(img_path)
@@ -793,7 +1150,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                     )
                 except APITimeoutError as e:
                     last_err = e
-                    time.sleep(3)
+                    _time_mod.sleep(3)
                     continue
                 except Exception as e:
                     last_err = e
@@ -851,7 +1208,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                     if getattr(item, "b64_json", None):
                         # 存为 D 盘文件（体积较大，落 output，不落 C 盘）
                         import base64
-                        out_dir = SETTINGS.output_dir
+                        out_dir = get_settings().output_dir
                         img_path = out_dir / f"{_slugify(plan)}_{uuid.uuid4().hex[:6]}.png"
                         img_path.write_bytes(base64.b64decode(item.b64_json))
                         return str(img_path)
@@ -861,7 +1218,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                 except APITimeoutError as e:
                     # 图像 API 延迟尖峰，重试（多数情况下重抽会落回正常区间）
                     last_err = e
-                    time.sleep(3)
+                    _time_mod.sleep(3)
                     continue
                 except Exception as e:
                     # 鉴权失败 / 参数错误 / 模型不存在等：不重试，直接抛出
@@ -939,7 +1296,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
             # 轮询结果（最多约 5 分钟；前端代理层已放宽到 10 分钟，避免长连接被掐断导致 "Failed to fetch"）
             poll_url = f"{root}/agnesapi?video_id={vid}"
             for _ in range(60):
-                time.sleep(5)
+                _time_mod.sleep(5)
                 with httpx.Client(timeout=30) as hc:
                     pr = hc.get(poll_url, headers={"Authorization": f"Bearer {creds['api_key']}"})
                 if pr.status_code != 200:
@@ -962,7 +1319,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
 
     if executor_type == "code-spec":
         # 生成 spec.md，落到 output 目录（D 盘）
-        out_dir = SETTINGS.output_dir
+        out_dir = get_settings().output_dir
         spec_path = out_dir / f"spec_{_slugify(plan)}_{uuid.uuid4().hex[:6]}.md"
         spec_path.write_text(f"# 盲盒代码需求\n\n{plan}\n", encoding="utf-8")
         return str(spec_path)
@@ -974,13 +1331,56 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
     if executor_type == "game":
         return _run_game_executor(plan, mode, result)
 
+    if executor_type == "quiz":
+        return _run_quiz_executor(plan, mode, result)
+
     if executor_type == "illustrated_story":
         return _run_illustrated_story(plan, mode, result)
+
+    if executor_type == "video_storyboard":
+        return _run_video_storyboard(plan, mode, result)
 
     if executor_type == "song":
         return _run_song(plan, mode, result)
 
     return plan
+
+
+# 注入到生成的 quiz/game HTML 中的高度上报脚本。
+# iframe 使用 sandbox="allow-scripts"（不含 allow-same-origin）以保持 origin 隔离，
+# 父页面因此无法读取 contentDocument 来自适应高度；改由子页面主动 postMessage 上报。
+# 目标 origin 用 "*" 是安全的：仅上报一个高度数字，不含任何敏感信息。
+_IFRAME_HEIGHT_REPORTER = """
+<script>
+(function(){
+  function report(){
+    try{
+      var d=document.documentElement,b=document.body;
+      var h=Math.max(b.scrollHeight,b.offsetHeight,d.scrollHeight,d.offsetHeight);
+      if(h>0) parent.postMessage({__blindbox_height:h},"*");
+    }catch(e){}
+  }
+  window.addEventListener("load",report);
+  document.addEventListener("click",function(){setTimeout(report,350);});
+  if(window.ResizeObserver){try{new ResizeObserver(report).observe(document.body);}catch(e){}}
+  setTimeout(report,120);
+})();
+</script>
+"""
+
+
+def _inject_height_reporter(html: str) -> str:
+    """向生成的 HTML 注入高度上报脚本，使沙箱 iframe 仍能自适应高度。"""
+    if not html or "__blindbox_height" in html:
+        return html
+    lower = html.lower()
+    idx = lower.rfind("</body>")
+    if idx != -1:
+        return html[:idx] + _IFRAME_HEIGHT_REPORTER + html[idx:]
+    idx = lower.rfind("</html>")
+    if idx != -1:
+        return html[:idx] + _IFRAME_HEIGHT_REPORTER + html[idx:]
+    return html + _IFRAME_HEIGHT_REPORTER
 
 
 def _extract_html(content: str) -> str:
@@ -1251,7 +1651,6 @@ def _call_two_pass_game(
     script_call = _make_simple_call(models, script_sys, script_user)
     script, script_model = _call_with_fallback(models, script_call, ctx="game:script")
     # 提取 <script>...</script> 块
-    import re as _re
     m = _re.search(r"<script[^>]*>([\s\S]*?)</script>", script, flags=_re.I)
     if m:
         js_code = m.group(1).strip()
@@ -1268,7 +1667,6 @@ def _call_two_pass_game(
         full_html = skeleton.replace("// GAME_LOGIC", js_code)
     else:
         # 回退策略：查找空的 <script> 标签并替换其内容
-        import re as _re
         # 匹配 <script>...</script> 或 <script /> 等形式
         pattern = r'(<script[^>]*>)(\s*//?\s*GAME_LOGIC\s*|)(</script>)'
         match = _re.search(pattern, skeleton, flags=_re.I | _re.DOTALL)
@@ -1291,7 +1689,6 @@ def _call_two_pass_game(
 def _make_simple_call(models: list[dict], sys_prompt: str, usr_prompt: str):
     """创建一个简单的 call 闭包，用于两步式生成。"""
     def call(creds: dict) -> str:
-        import time
         client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=120, max_retries=0)
         # 使用配置的温度，默认 0.6
         temp = creds.get("temperature", 0.6)
@@ -1309,12 +1706,12 @@ def _make_simple_call(models: list[dict], sys_prompt: str, usr_prompt: str):
                 if content:
                     return content
                 if attempt == 0:
-                    time.sleep(2)
+                    _time_mod.sleep(2)
                     continue
                 raise RuntimeError("模型返回空内容")
             except Exception as e:
                 if attempt == 0:
-                    time.sleep(2)
+                    _time_mod.sleep(2)
                     continue
                 raise e
     return call
@@ -1330,7 +1727,7 @@ def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
     - mock / 无 key / 所有模型均失败：落一份内置的、确实可玩的占位小游戏，保证开盒不中断、
       且不再把「需求提示词」误当成品。
     """
-    out_dir = SETTINGS.output_dir
+    out_dir = get_settings().output_dir
     slug = _slugify(plan, max_len=40)
 
     settings = get_settings()
@@ -1344,7 +1741,7 @@ def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
 
     def _save(html: str) -> str:
         dest = out_dir / f"game_{slug}_{uuid.uuid4().hex[:6]}.html"
-        dest.write_text(html, encoding="utf-8")
+        dest.write_text(_inject_height_reporter(html), encoding="utf-8")
         return str(dest)
 
     has_key = any(c["api_key"] for c in models) and not all(
@@ -1379,7 +1776,6 @@ def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
 
     def _patch_game_html(html: str) -> str:
         """修复 AI 生成游戏中常见的交互缺失问题。"""
-        import re as _re
 
         # 1) 移除 pointer-events:none
         html = _re.sub(
@@ -1464,13 +1860,13 @@ def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
                 else:
                     last_err = RuntimeError("模型未返回可用的 HTML 内容")
                 if attempt == 0:
-                    time.sleep(2)
+                    _time_mod.sleep(2)
                     continue
                 break
             except Exception as e:
                 last_err = e
                 if attempt == 0:
-                    time.sleep(2)
+                    _time_mod.sleep(2)
                     continue
                 break
         # 该模型两次均失败 -> 抛异常触发跨模型 fallback
@@ -1500,6 +1896,231 @@ def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
     return _save(_mock_game_html(plan))
 
 
+def _run_quiz_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = None) -> str:
+    """趣味测试模式：基于规划出的测试内容，生成交互式 HTML 测试页。
+    每次显示一道题，用户选择后显示下一道，完成后点击查看结果。
+    """
+    import logging as _log
+    out_dir = get_settings().output_dir
+    slug = _slugify(plan, max_len=40)
+    settings = get_settings()
+    models = _executor_creds("text")
+
+    def _save(html: str) -> str:
+        dest = out_dir / f"quiz_{slug}_{uuid.uuid4().hex[:6]}.html"
+        dest.write_text(_inject_height_reporter(html), encoding="utf-8")
+        return str(dest)
+
+    has_key = any(c["api_key"] for c in models) and not all(
+        c["api_key"] == "<USER_KEY>" for c in models
+    )
+    if settings.mock or not has_key:
+        if result is not None:
+            result.model_used = "Mock 模拟"
+        return _save(_mock_quiz_html(plan))
+
+    system_prompt = (
+        "你是一位前端交互工程师。请基于【测试内容】，生成一个【完整可玩的单文件 HTML5 趣味测试页】。\n"
+        "【交互逻辑——必须严格遵守】：\n"
+        "1. 每次只显示一道题，用户选择选项后自动显示下一道题\n"
+        "2. 最后一题答完后，显示一个「查看结果」按钮\n"
+        "3. 点击「查看结果」按钮后，才显示测试结果（根据用户选项分布给出结果）\n"
+        "4. 记录每道题的选项，结果页统计 A/B/C/D 选择最多的类型\n\n"
+        "【设计要求】：\n"
+        "1. 只输出一个 HTML 文件，内含 <style> 与 <script>，不要任何外部依赖\n"
+        "2. 页面美观、现代感、配色舒适，有适当的过渡动画\n"
+        "3. 顶部显示进度（如「第 1/3 题」）\n"
+        "4. 选项用卡片形式，hover 效果，选中后高亮\n"
+        "5. 结果页要有揭晓动画感（如淡入、缩放）\n"
+        "6. 底部有「再测一次」按钮（刷新页面）\n"
+        "7. 直接输出 <!DOCTYPE html> 开头，不要 ```html 围栏，不要任何解释\n"
+        "8. 总字符数控制在 5000 以内"
+    )
+    user_prompt = f"请基于以下测试内容，生成完整可玩的单文件 HTML5 趣味测试页：\n\n{plan}"
+
+    def call(creds: dict) -> str:
+        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=180, max_retries=0)
+        for attempt in range(2):
+            try:
+                resp = client.chat.completions.create(
+                    model=creds["model"],
+                    temperature=0.7,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
+                content = (resp.choices[0].message.content or "").strip()
+                html = _extract_html(content)
+                if html and "<script" in html.lower():
+                    return _save(html)
+                if attempt == 0:
+                    _time_mod.sleep(2)
+                    continue
+                raise RuntimeError("模型未返回可用的 HTML 内容")
+            except Exception as e:
+                if attempt == 0:
+                    _time_mod.sleep(2)
+                    continue
+                raise e
+
+    try:
+        out, used = _call_with_fallback(models, call, ctx="executor:quiz")
+        if result is not None:
+            result.model_used = used
+        return out
+    except FallbackExhausted:
+        if result is not None:
+            result.model_used = "Mock 模拟"
+        return _save(_mock_quiz_html(plan))
+
+
+def _mock_quiz_html(plan: str) -> str:
+    """生成占位的趣味测试 HTML 页，尝试从 plan 中解析测试内容。"""
+
+    # 尝试从 plan 中解析测试内容
+    questions = []
+    results = {}
+
+    # 尝试解析题目
+    lines = plan.split('\n')
+    current_q = None
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # 匹配题目行
+        q_match = _re.match(r'题目(\d+)[:：]\s*(.+)', line)
+        if q_match:
+            if current_q:
+                questions.append(current_q)
+            current_q = {"q": q_match.group(2), "opts": []}
+        # 匹配选项
+        elif current_q and line.startswith(('A.', 'B.', 'C.', 'D.')):
+            current_q["opts"].append(line)
+        # 匹配结果解析
+        elif line.startswith('选A最多'):
+            results['A'] = line.split('：')[-1].strip() if '：' in line else line.split(':')[-1].strip()
+        elif line.startswith('选B最多'):
+            results['B'] = line.split('：')[-1].strip() if '：' in line else line.split(':')[-1].strip()
+        elif line.startswith('选C最多'):
+            results['C'] = line.split('：')[-1].strip() if '：' in line else line.split(':')[-1].strip()
+        elif line.startswith('选D最多'):
+            results['D'] = line.split('：')[-1].strip() if '：' in line else line.split(':')[-1].strip()
+
+    if current_q:
+        questions.append(current_q)
+
+    # 如果解析失败，使用默认题目
+    if not questions:
+        questions = [
+            {"q": "你更倾向于哪种冒险？", "opts": ["A.探索未知城市", "B.深入荒野森林", "C.潜入深海世界", "D.穿越星际宇宙"]},
+            {"q": "面对困境时你的第一反应？", "opts": ["A.冷静分析局势", "B.寻求朋友帮助", "C.凭直觉行动", "D.制定详细计划"]},
+            {"q": "你最看重哪种品质？", "opts": ["A.勇气与魄力", "B.智慧与谋略", "C.善良与同理心", "D.自由与独立"]}
+        ]
+    if not results:
+        results = {
+            "A": "你是「开拓先锋」——永远走在探索未知的路上，勇气是你的旗帜。",
+            "B": "你是「智慧谋士」——深思熟虑后用智慧化解一切，谋略是你的武器。",
+            "C": "你是「直觉行者」——相信内心的声音，总能在关键时刻做出正确选择。",
+            "D": "你是「独立思想家」——不随波逐流，用自己的方式定义世界的规则。"
+        }
+
+    # 转换为JavaScript格式
+    questions_js = json.dumps(questions, ensure_ascii=False)
+    results_js = json.dumps(results, ensure_ascii=False)
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>趣味测试</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:'PingFang SC',sans-serif;background:linear-gradient(135deg,#1a1a2e,#16213e);min-height:100vh;display:flex;align-items:center;justify-content:center;color:#fff}}
+.container{{background:rgba(255,255,255,.1);backdrop-filter:blur(10px);border-radius:20px;padding:40px;max-width:500px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.3)}}
+.progress{{text-align:center;margin-bottom:20px;color:#aaa;font-size:14px}}
+.question{{font-size:20px;font-weight:bold;margin-bottom:24px;text-align:center;min-height:60px}}
+.options{{display:flex;flex-direction:column;gap:12px}}
+.option{{background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.15);border-radius:12px;padding:16px 20px;cursor:pointer;transition:all .3s;text-align:center}}
+.option:hover{{background:rgba(255,255,255,.15);border-color:#7f77dd;transform:translateY(-2px)}}
+.option.selected{{background:rgba(127,119,221,.3);border-color:#7f77dd}}
+.result-title{{font-size:24px;text-align:center;margin-bottom:16px}}
+.result-text{{font-size:16px;line-height:1.8;text-align:center;margin-bottom:24px}}
+.btn{{display:block;width:100%;padding:14px;background:linear-gradient(135deg,#7f77dd,#5b54c0);border:none;border-radius:12px;color:#fff;font-size:16px;cursor:pointer;transition:transform .2s}}
+.btn:hover{{transform:scale(1.02)}}
+.hidden{{display:none}}
+.fade-in{{animation:fadeIn .5s ease}}
+@keyframes fadeIn{{from{{opacity:0;transform:scale(.95)}}to{{opacity:1;transform:scale(1)}}}}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="progress" id="progress">第 1/{{len(questions)}} 题</div>
+  <div class="question" id="question">加载中...</div>
+  <div class="options" id="options"></div>
+  <div class="result hidden" id="result">
+    <div class="result-title">🎉 测试结果</div>
+    <div class="result-text" id="resultText"></div>
+    <button class="btn" onclick="location.reload()">再测一次</button>
+  </div>
+</div>
+<script>
+const questions={questions_js};
+const results={results_js};
+let current=0,answers=[];
+function showQuestion(){{
+  document.getElementById("progress").textContent=`第 ${{current+1}}/${{questions.length}} 题`;
+  document.getElementById("question").textContent=questions[current].q;
+  const opts=document.getElementById("options");
+  opts.innerHTML="";
+  questions[current].opts.forEach((opt,i)=>{{
+    const d=document.createElement("div");
+    d.className="option";
+    d.textContent=opt;
+    d.onclick=()=>selectOpt(i,d);
+    opts.appendChild(d);
+  }});
+}}
+function selectOpt(i,d){{
+  document.querySelectorAll(".option").forEach(o=>o.classList.remove("selected"));
+  d.classList.add("selected");
+  answers[current]=String.fromCharCode(65+i);
+  setTimeout(()=>{{
+    current++;
+    if(current<questions.length) showQuestion();
+    else showResultBtn();
+  }},300);
+}}
+function showResultBtn(){{
+  document.getElementById("options").innerHTML="";
+  document.getElementById("question").textContent="所有题目已答完";
+  document.getElementById("progress").textContent="";
+  const btn=document.createElement("button");
+  btn.className="btn";
+  btn.textContent="查看结果";
+  btn.onclick=showResult;
+  document.getElementById("options").appendChild(btn);
+}}
+function showResult(){{
+  const count={{A:0,B:0,C:0,D:0}};
+  answers.forEach(a=>count[a]++);
+  const max=Object.keys(count).reduce((a,b)=>count[a]>count[b]?a:b);
+  document.getElementById("question").classList.add("hidden");
+  document.getElementById("options").classList.add("hidden");
+  document.getElementById("progress").classList.add("hidden");
+  const r=document.getElementById("result");
+  r.classList.remove("hidden");
+  r.classList.add("fade-in");
+  document.getElementById("resultText").textContent=results[max];
+}}
+showQuestion();
+</script>
+</body>
+</html>"""
+
+
 def _run_tts(plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = None) -> tuple[str, str]:
     """文本转语音：把规划出的播客台词合成为音频文件，落盘 output/ 并返回 (绝对路径, 使用信息)。
 
@@ -1512,7 +2133,7 @@ def _run_tts(plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = 
       字段再调一次（依赖厂商默认音色）③ 仍失败才自动回退到免费 Edge TTS，保证开盒不中断。
     「使用信息」会在结果/历史中标注实际使用的模型，便于溯源。
     """
-    prov = SETTINGS.providers.get("tts", {}) or {}
+    prov = get_settings().providers.get("tts", {}) or {}
     voice = (prov.get("voice") or "").strip()
     raw_text = (plan or "").strip()
     if not raw_text:
@@ -1750,7 +2371,7 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
     - 本地文件（spec md / base64 图片 png）与纯文本保持原样。
     - 返回 {"json": 相对路径, "local_file": 相对路径或 None}，供前端预览。
     """
-    out_dir: Path = SETTINGS.output_dir
+    out_dir: Path = get_settings().output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     rid = uuid.uuid4().hex[:8]
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1829,7 +2450,7 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
     if (not local_file and isinstance(output_val, str) and output_val.strip()
             and not re.match(r"^https?://", output_val.strip())
             and not Path(output_val).is_absolute()):
-        mode_meta = SETTINGS.get_mode(mode_id) or {}
+        mode_meta = get_settings().get_mode(mode_id) or {}
         mode_name = mode_meta.get("name", mode_id)
         md_content = (
             f"# {mode_name} · {ts}\n\n"
@@ -1853,6 +2474,7 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
         "caption": result.caption,
         "image_url": result.image_url,
         "local_file": local_file,
+        "env_warning": result.env_warning,
     }
     json_path = out_dir / f"result_{_slugify(result.concept, max_len=30)}_{rid}.json"
     json_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1909,7 +2531,7 @@ def _run_illustrated_story(
     has_key = any(c["api_key"] for c in img_models) and not all(
         c["api_key"] == "<USER_KEY>" for c in img_models
     )
-    out_dir = SETTINGS.output_dir
+    out_dir = get_settings().output_dir
 
     if settings.mock or not has_key:
         if result is not None:
@@ -1945,7 +2567,7 @@ def _run_illustrated_story(
                     raise RuntimeError("empty image data")
                 except APITimeoutError as e:
                     last_err = e
-                    time.sleep(3)
+                    _time_mod.sleep(3)
                     continue
                 except Exception as e:
                     last_err = e
@@ -1960,13 +2582,141 @@ def _run_illustrated_story(
                 result.model_used = used
             if out.startswith("http"):
                 return {"url": out, "local": None}
-            return {"url": None, "local": str(Path(out).relative_to(out_dir))}
+            local = _safe_relpath(out, out_dir)
+            if local is None:
+                _log.warning("[illustrated_story] 输出路径不在 output_dir 下，跳过: %s", out)
+                return None
+            return {"url": None, "local": local}
         except FallbackExhausted:
             return None
 
     pages: list[dict] = []
     failed_count = 0
     for i, prompt in enumerate(pages_prompt):
+        info = _gen_one(prompt)
+        if info is not None:
+            pages.append({"prompt": prompt[:80], **info})
+        else:
+            failed_count += 1
+
+    payload = {"pages": pages, "count": len(pages)}
+    if failed_count > 0:
+        payload["failed"] = failed_count
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _extract_shots(plan: str, max_shots: int = 6) -> list[str]:
+    """从规划输出中提取 [SHOT 1] / [SHOT 2] ... 分镜 prompt 块。
+
+    按出现顺序提取，最多 max_shots 镜；找不到块则把整段 plan 当作单镜。
+    """
+    blocks: list[str] = []
+    # 匹配 [SHOT 1]、[SHOT_1]、[SHOT1] 等变体，使用贪婪匹配捕获多行内容
+    # 分隔符为换行后跟下一个标签，或行末；也兼容标签紧贴（无换行）的情况
+    pattern = r'\[SHOT[_\s]?(\d+)\]\s*[:：]?\s*(.*?)(?=\n?\s*\[SHOT[_\s]?\d+\]|\Z)'
+    matches = _re.findall(pattern, plan, flags=_re.IGNORECASE | _re.DOTALL)
+    for num, content in matches:
+        if int(num) <= max_shots:
+            blocks.append(content.strip())
+    if not blocks:
+        # 也尝试匹配 [SHOT N] prompt: 格式（prompt 在标签同行）
+        pattern2 = r'\[SHOT[_\s]?(\d+)\]\s*[:：]?\s*(.+?)(?=\n?\s*\[SHOT|\Z)'
+        matches2 = _re.findall(pattern2, plan, flags=_re.IGNORECASE | _re.DOTALL)
+        for num, content in matches2:
+            if int(num) <= max_shots:
+                blocks.append(content.strip())
+    if not blocks:
+        # 无结构化标签：整段 plan 作为唯一一镜
+        p = plan.strip()
+        if p:
+            blocks.append(p)
+    return blocks[:max_shots]
+
+
+def _run_video_storyboard(
+    plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = None,
+) -> str:
+    """视频分镜模式：根据规划出的多镜头 prompt，逐一调用图片模型生成故事板，
+    返回 JSON 字符串 `{"pages": [{"url": "...", "local": "..."}, ...], "count": N}`。
+
+    - 同一 plan 产生 4-6 张分镜图（由 planner 的 [SHOT_N] 块数量决定）。
+    - 对每张图复用 image executor 的凭据与重试逻辑。
+    - 遇到个别分镜生成失败时跳过该镜，不阻断整条故事板。
+    - mock 模式返回包含占位信息的 JSON。
+    """
+    shots = _extract_shots(plan, max_shots=6)
+    if len(shots) < 2:
+        # Planner 只产出单镜：拆成前后两段作为两镜
+        half = max(1, len(plan) // 2)
+        shots = [plan[:half].strip(), plan[half:].strip()]
+
+    settings = get_settings()
+    img_models = _executor_creds("image")
+    has_key = any(c["api_key"] for c in img_models) and not all(
+        c["api_key"] == "<USER_KEY>" for c in img_models
+    )
+    out_dir = get_settings().output_dir
+
+    if settings.mock or not has_key:
+        if result is not None:
+            result.model_used = "Mock 模拟"
+        mock_pages = [
+            {"prompt": s[:60], "url": None, "local": None} for s in shots
+        ]
+        return json.dumps({"pages": mock_pages, "count": len(mock_pages)}, ensure_ascii=False)
+
+    def _gen_one(prompt: str) -> dict | None:
+        """生成单张分镜图，返回 {"url", "local"} 或 None（失败跳过）。"""
+
+        def call(creds: dict) -> str:
+            client = OpenAI(
+                base_url=creds["base_url"], api_key=creds["api_key"],
+                timeout=180, max_retries=0,
+            )
+            last_err: Exception | None = None
+            for _attempt in range(3):
+                try:
+                    resp = client.images.generate(
+                        model=creds["model"], prompt=prompt, size="1792x1024", n=1,
+                    )
+                    item = resp.data[0]
+                    if getattr(item, "url", None):
+                        return item.url
+                    if getattr(item, "b64_json", None):
+                        import base64 as _b64
+                        slug = _slugify(prompt, max_len=30)
+                        img_path = out_dir / f"storyboard_{slug}_{uuid.uuid4().hex[:6]}.png"
+                        img_path.write_bytes(_b64.b64decode(item.b64_json))
+                        return str(img_path)
+                    raise RuntimeError("empty image data")
+                except APITimeoutError as e:
+                    last_err = e
+                    _time_mod.sleep(3)
+                    continue
+                except Exception as e:
+                    last_err = e
+                    break
+            raise RuntimeError(
+                f"[视频分镜 单镜失败] model={creds['model']}: {type(last_err).__name__}: {last_err}"
+            )
+
+        try:
+            out, used = _call_with_fallback(img_models, call, ctx="executor:video_storyboard")
+            if result is not None and result.model_used is None:
+                result.model_used = used
+            if out.startswith("http"):
+                return {"url": out, "local": None}
+            local = _safe_relpath(out, out_dir)
+            if local is None:
+                _log.warning("[video_storyboard] 输出路径不在 output_dir 下，跳过: %s", out)
+                return None
+            return {"url": None, "local": local}
+        except FallbackExhausted:
+            return None
+
+    pages: list[dict] = []
+    failed_count = 0
+    for i, prompt in enumerate(shots):
         info = _gen_one(prompt)
         if info is not None:
             pages.append({"prompt": prompt[:80], **info})
@@ -2009,7 +2759,7 @@ def _run_song(
         if result is not None:
             result.model_used = "Mock 模拟"
             result.tts_info = "（Mock）静音占位"
-        out_dir = SETTINGS.output_dir
+        out_dir = get_settings().output_dir
         dest = out_dir / f"song_mock_{_slugify(lyrics)}_{uuid.uuid4().hex[:6]}.wav"
         try:
             import wave
@@ -2040,7 +2790,7 @@ def _run_song(
     rel = ""
     if audio_path:
         try:
-            rel = str(Path(audio_path).relative_to(SETTINGS.output_dir))
+            rel = str(Path(audio_path).relative_to(get_settings().output_dir))
         except ValueError:
             rel = audio_path
 

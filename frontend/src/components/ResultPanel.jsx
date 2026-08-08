@@ -1,4 +1,5 @@
 import React from "react";
+import SandboxedHtmlFrame from "./SandboxedHtmlFrame.jsx";
 
 function parseCharFields(text) {
   if (!text) return [];
@@ -14,8 +15,78 @@ function parseCharFields(text) {
     .filter((f) => f.value);
 }
 
+// 提取 spec 章节（【环境依赖清单】/【磁盘占用预估】等），取到下一个【章节】或结尾
+function extractSection(text, name) {
+  if (!text) return "";
+  const re = new RegExp("【" + name + "】([\\s\\S]*?)(?=【|$)", "i");
+  const m = text.match(re);
+  return m ? m[1].trim().replace(/\n{3,}/g, "\n\n").slice(0, 300) : "";
+}
+
+// 环境成本卡：代码模式 spec 下方的依赖/磁盘预估 + 黑名单警告
+function envCostCard(result) {
+  const plan = result.plan || "";
+  const warn = result.env_warning || "";
+  const dep = extractSection(plan, "环境依赖清单");
+  const size = extractSection(plan, "磁盘占用预估");
+  const rows = [];
+  if (warn) {
+    rows.push(
+      <div
+        key="warn"
+        style={{
+          marginTop: 10,
+          padding: "10px 12px",
+          background: "rgba(227,75,74,0.12)",
+          border: "1px solid rgba(227,75,74,0.5)",
+          borderRadius: 10,
+          color: "#f09595",
+          fontSize: 13,
+          lineHeight: 1.6,
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {warn}
+      </div>
+    );
+  }
+  if (dep || size) {
+    rows.push(
+      <div
+        key="cost"
+        style={{
+          marginTop: 10,
+          padding: "12px 14px",
+          background: "var(--panel-2, #1f232c)",
+          border: "1px solid var(--border, #2a2f3a)",
+          borderRadius: 10,
+          fontSize: 13,
+          lineHeight: 1.7,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 12,
+            color: "var(--accent, #7f77dd)",
+            fontWeight: 600,
+            marginBottom: 6,
+            letterSpacing: 0.5,
+          }}
+        >
+          环境成本
+        </div>
+        {dep ? <div style={{ color: "var(--muted, #888)" }}>依赖：{dep}</div> : null}
+        {size ? (
+          <div style={{ color: "var(--muted, #888)", marginTop: 4 }}>磁盘：{size}</div>
+        ) : null}
+      </div>
+    );
+  }
+  return rows.length ? rows : null;
+}
+
 export default function ResultPanel({ result, onReroll }) {
-  const { seed, concept, plan, output, output_kind, archived, tts_info, model_used, caption, image_url } = result;
+  const { seed, concept, plan, output, output_kind, archived, tts_info, model_used, caption, image_url, env_warning } = result;
 
   return (
     <div className="result">
@@ -71,37 +142,27 @@ export default function ResultPanel({ result, onReroll }) {
         </div>
       )}
       {output_kind === "spec_md" && (
-        <div className="plan">
-          已生成 spec 文件：<br />
-          <code>{output}</code>
+        <div>
+          <div className="plan">
+            已生成 spec 文件：<br />
+            <code>{output}</code>
+          </div>
+          {envCostCard(result)}
         </div>
       )}
-      {output_kind === "game_html" && (() => {
-        const src = archived?.local_file
-          ? `/output/${archived.local_file}`
-          : output.startsWith("/output/")
-          ? output
-          : null;
-        return src ? (
-          <iframe
-            src={src}
-            sandbox="allow-scripts"
-            title="小游戏"
-            scrolling="no"
-            style={{
-              width: "100%",
-              height: 520,
-              border: 0,
-              borderRadius: 12,
-              marginTop: 8,
-              display: "block",
-              overflow: "hidden",
-            }}
-          />
-        ) : (
-          <div className="plan">{output}</div>
-        );
-      })()}
+      {(output_kind === "game_html" || output_kind === "quiz_html") && (
+        <SandboxedHtmlFrame
+          src={
+            archived?.local_file
+              ? `/output/${archived.local_file}`
+              : output.startsWith("/output/")
+              ? output
+              : null
+          }
+          isQuiz={output_kind === "quiz_html"}
+          fallback={output}
+        />
+      )}
       {(output_kind === "image_url" || output_kind === "video_file" || output_kind === "audio_file") &&
         (() => {
           // 与主页面/历史页一致：归档后 output 可能仅是本地相对文件名（无 /output/ 前缀），
@@ -131,53 +192,90 @@ export default function ResultPanel({ result, onReroll }) {
               </div>
             );
           }
-          return output_kind === "video_file" ? (
-            <video
-              src={ms}
-              controls
-              style={{
-                maxWidth: "100%",
-                borderRadius: "12px",
-                marginTop: 8,
-                display: "block",
-              }}
-            />
-          ) : (
-            <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
-              <img
-                src={ms}
-                alt="result"
-                style={{
-                  maxWidth: "100%",
-                  borderRadius: "12px",
-                  marginTop: 8,
-                  display: "block",
-                }}
-              />
-              {caption ? (
-                <div
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    marginTop: 8,
-                    padding: "10px 12px",
-                    borderRadius: "0 0 12px 12px",
-                    color: "#fff",
-                    background:
-                      "linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))",
-                    fontSize: 20,
-                    fontWeight: 700,
-                    textAlign: "center",
-                    textShadow: "0 1px 3px rgba(0,0,0,0.5)",
-                  }}
-                >
-                  {caption}
+          if (output_kind === "image_url") {
+            const belowText = ["recipe", "tarot", "character"].includes(result.mode);
+            if (belowText) {
+              return (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 8 }}>
+                  <img
+                    src={ms}
+                    alt="result"
+                    style={{
+                      maxWidth: "480px",
+                      width: "100%",
+                      height: "auto",
+                      objectFit: "contain",
+                      borderRadius: "12px",
+                      display: "block",
+                      background: "var(--panel-2)",
+                    }}
+                  />
+                  {caption ? (
+                    <div
+                      style={{
+                        maxWidth: "480px",
+                        width: "100%",
+                        marginTop: 10,
+                        padding: "12px 14px",
+                        boxSizing: "border-box",
+                        background: "var(--panel-2)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "12px",
+                        color: "var(--text)",
+                        fontSize: 14,
+                        lineHeight: 1.7,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        textAlign: "left",
+                      }}
+                    >
+                      {caption}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
-          );
+              );
+            }
+            return (
+              <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
+                <img
+                  src={ms}
+                  alt="result"
+                  style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8, display: "block" }}
+                />
+                {caption ? (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      marginTop: 8,
+                      padding: "10px 12px",
+                      borderRadius: "0 0 12px 12px",
+                      color: "#fff",
+                      background: "linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))",
+                      fontSize: 20,
+                      fontWeight: 700,
+                      textAlign: "center",
+                      textShadow: "0 1px 3px rgba(0,0,0,0.5)",
+                    }}
+                  >
+                    {caption}
+                  </div>
+                ) : null}
+              </div>
+            );
+          }
+          if (output_kind === "video_file") {
+            return (
+              <video
+                src={ms}
+                controls
+                style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8, display: "block" }}
+              />
+            );
+          }
+          return null;
         })()}
 
       {output_kind === "image_strip" && (() => {

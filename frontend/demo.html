@@ -101,6 +101,27 @@
     const { useState, useEffect, useRef } = preactHooks;
     const html = htm.bind(h);
 
+    // ---- 沙箱 iframe 高度自适应 ----
+    // quiz/game 的 iframe 使用 sandbox="allow-scripts"（不含 allow-same-origin）以保留 origin 隔离，
+    // 父页面因此无法读取其 contentDocument；改由子页面 postMessage 上报高度
+    // （上报脚本由后端 _inject_height_reporter 注入）。
+    // 通过 event.source 反查是页面上的哪个 iframe，避免信任任意来源的消息。
+    window.addEventListener("message", (e) => {
+      const height = Number(e.data && e.data.__blindbox_height);
+      if (!Number.isFinite(height) || height <= 0) return;
+      // 封顶：iframe 最高不超过视口的 1.5 倍，超出部分由 iframe 自身内部滚动。
+      // 否则游戏若无限追加 DOM（LLM 常见），外层页面会被撑到无限长、永远滚不到底。
+      const CAP = Math.max(800, Math.floor(window.innerHeight * 1.5));
+      for (const frame of document.querySelectorAll("iframe[data-blindbox]")) {
+        if (frame.contentWindow === e.source) {
+          const min = frame.dataset.blindbox === "quiz" ? 400 : 520;
+          frame.style.height = Math.min(CAP, Math.max(min, height + 20)) + "px";
+          frame.style.overflow = "auto";
+          break;
+        }
+      }
+    });
+
     function App() {
       const [tab, setTab] = useState("box");
       const [modes, setModes] = useState([]);
@@ -189,6 +210,33 @@
           return { label: "", value: line };
         }).filter(f => f.value);
       };
+      // spec 章节提取：【环境依赖清单】/【磁盘占用预估】等，取到下一个【章节】或结尾
+      const extractSection = (text, name) => {
+        if (!text) return "";
+        const re = new RegExp("【" + name + "】([\\s\\S]*?)(?=【|$)", "i");
+        const m = text.match(re);
+        return m ? m[1].trim().replace(/\n{3,}/g, "\n\n").slice(0, 300) : "";
+      };
+      // 环境成本卡：代码模式 spec 展示区下方的依赖/磁盘预估 + 黑名单警告
+      const envCostCard = (r) => {
+        if (!r || r.output_kind !== "spec_md") return null;
+        const plan = r.plan || "";
+        const warn = r.env_warning || "";
+        const dep = extractSection(plan, "环境依赖清单");
+        const size = extractSection(plan, "磁盘占用预估");
+        const rows = [];
+        if (warn) rows.push(html`
+          <div style=${{ marginTop: "10px", padding: "10px 12px", background: "rgba(227,75,74,0.12)", border: "1px solid rgba(227,75,74,0.5)", borderRadius: "10px", color: "#f09595", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+            ${warn}
+          </div>`);
+        if (dep || size) rows.push(html`
+          <div style=${{ marginTop: "10px", padding: "12px 14px", background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: "10px", fontSize: 13, lineHeight: 1.7 }}>
+            <div style=${{ fontSize: 12, color: "var(--accent, #7f77dd)", fontWeight: 600, marginBottom: 6, letterSpacing: 0.5 }}>环境成本</div>
+            ${dep ? html`<div style=${{ color: "var(--muted)" }}>依赖：${dep}</div>` : ""}
+            ${size ? html`<div style=${{ color: "var(--muted)", marginTop: 4 }}>磁盘：${size}</div>` : ""}
+          </div>`);
+        return rows.length ? rows : null;
+      };
       const loadHistory = async () => {
         setHistLoading(true); setHistError(null);
         try {
@@ -270,6 +318,21 @@
       const resetPool = () => {
         if (initialPoolRef.current) update("randomness.pool", JSON.parse(JSON.stringify(initialPoolRef.current)));
       };
+      const refreshAllSeeds = async () => {
+        setRefreshingAll(true); setRefreshErr(null);
+        try {
+          const resp = await fetch("/api/seed/refresh-all", { method: "POST" });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || "刷新失败");
+          update("randomness.pool", data.pool);
+        } catch (e) {
+          setRefreshErr(e.message);
+        } finally {
+          setRefreshingAll(false);
+        }
+      };
+      const [refreshingAll, setRefreshingAll] = useState(false);
+      const [refreshErr, setRefreshErr] = useState(null);
 
       // 每个模型槽位的「获取模型列表」状态：以 basePath 为 key 存 {models, fetching, err}
       const [slotState, setSlotState] = useState({});
@@ -485,13 +548,18 @@
                         </div>`)}
                     </div>
                   </div>`}
-                ${result.output_kind === "spec_md" && html`<div class="plan">已生成 spec：<br/><code>${result.output}</code></div>`}
+                ${result.output_kind === "spec_md" && html`<div class="plan">已生成 spec：<br/><code>${result.output}</code></div>${envCostCard(result)}`}
                 ${result.output_kind === "image_url" && html`
                   ${mediaSrc(result)
-                    ? html`<div style=${{position:"relative",display:"inline-block",maxWidth:"100%"}}>
-                        <img src=${mediaSrc(result)} style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px",display:"block"}} alt="result" />
-                        ${result.caption ? html`<div style=${{position:"absolute",left:0,right:0,bottom:0,padding:"10px 12px",borderRadius:"0 0 12px 12px",color:"#fff",background:"linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))",fontSize:20,fontWeight:700,textAlign:"center",textShadow:"0 1px 3px rgba(0,0,0,0.5)"}}>${result.caption}</div>` : null}
-                      </div>`
+                    ? (["recipe","tarot","character"].includes(result.mode)
+                        ? html`<div style=${{display:"flex",flexDirection:"column",alignItems:"center",marginTop:"8px"}}>
+                            <img src=${mediaSrc(result)} style=${{maxWidth:"480px",width:"100%",height:"auto",objectFit:"contain",borderRadius:"12px",display:"block",background:"var(--panel-2)"}} alt="result" />
+                            ${result.caption ? html`<div style=${{maxWidth:"480px",width:"100%",marginTop:"10px",padding:"12px 14px",boxSizing:"border-box",background:"var(--panel-2)",border:"1px solid var(--border)",borderRadius:"12px",color:"var(--text)",fontSize:14,lineHeight:1.7,whiteSpace:"pre-wrap",wordBreak:"break-word",textAlign:"left",textShadow:"none"}}>${result.caption}</div>` : null}
+                          </div>`
+                        : html`<div style=${{position:"relative",display:"inline-block",maxWidth:"100%"}}>
+                            <img src=${mediaSrc(result)} style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px",display:"block"}} alt="result" />
+                            ${result.caption ? html`<div style=${{position:"absolute",left:0,right:0,bottom:0,padding:"10px 12px",borderRadius:"0 0 12px 12px",color:"#fff",background:"linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))",fontSize:20,fontWeight:700,textAlign:"center",textShadow:"0 1px 3px rgba(0,0,0,0.5)"}}>${result.caption}</div>` : null}
+                          </div>`)
                     : html`<div class="plan">${result.output}</div>`}`}
                 ${result.output_kind === "video_file" && html`
                   ${mediaSrc(result)
@@ -501,11 +569,11 @@
                   ${mediaSrc(result)
                     ? html`<audio src=${mediaSrc(result)} controls preload="metadata" style=${{width:"100%",borderRadius:"12px",marginTop:"8px"}}></audio>`
                     : html`<div class="plan">${result.output}</div>`}`}
-                ${result.output_kind === "game_html" && html`
+                ${(result.output_kind === "game_html" || result.output_kind === "quiz_html") && html`
                   ${mediaSrc(result)
-                    ? html`<iframe src=${mediaSrc(result)} sandbox="allow-scripts" scrolling="no" title="小游戏" style=${{width:"100%",height:"520px",border:"0",borderRadius:"12px",marginTop:"8px",overflow:"hidden"}}></iframe>`
+                    ? html`<iframe src=${mediaSrc(result)} sandbox="allow-scripts" data-blindbox=${result.output_kind === "quiz_html" ? "quiz" : "game"} title=${result.output_kind === "quiz_html" ? "趣味测试" : "小游戏"} style=${{width:"100%",height:result.output_kind === "quiz_html" ? "650px" : "520px",border:"0",borderRadius:"12px",marginTop:"8px",display:"block"}}></iframe>`
                     : html`<div class="plan">${result.output}</div>`}
-                  <div class="note" style=${{marginTop:"6px"}}>🎮 小游戏（点击操作；沙箱隔离运行）</div>`}
+                  <div class="note" style=${{marginTop:"6px"}}>${result.output_kind === "quiz_html" ? "📝 趣味测试（逐题作答，完成后查看结果）" : "🎮 小游戏（点击操作；沙箱隔离运行）"}</div>`}
                 ${result.output_kind === "song" && (() => {
                   let audio = "", lyrics = "", ttsInfo = "";
                   try {
@@ -576,11 +644,6 @@
           ${tab === "config" && config && html`
             <div class="section-title">全局配置</div>
             <div class="config-form">
-              <div class="form-row"><label>管道模式</label>
-                <select value=${g.pipeline_mode || "standard"} onChange=${e => update("global.pipeline_mode", e.target.value)}>
-                  <option value="standard">standard（3 Agent）</option>
-                  <option value="lite">lite（2 Agent）</option>
-                </select></div>
               <div class="form-row"><label>
                 <input type="checkbox" checked=${!!config.mock} onInput=${e => update("mock", e.target.checked)} /> Mock 模式（无真实 key 时本地模拟）</label></div>
               <div class="section-title">随机性</div>
@@ -617,6 +680,11 @@
               <button type="button" class="save-btn"
                 style=${{ marginTop: "10px", background: "transparent", color: "var(--muted)" }}
                 onClick=${resetPool}>↺ 恢复默认种子池</button>
+              <button type="button" class="save-btn"
+                style=${{ marginTop: "6px", background: "var(--accent)", color: "#fff", width: "100%" }}
+                disabled=${refreshingAll}
+                onClick=${refreshAllSeeds}>${refreshingAll ? "⏳ 正在刷新..." : "🔀 一键刷新种子池"}</button>
+              ${refreshErr && html`<div class="error">${refreshErr}</div>`}
             </div>
 
             ${renderModelSlot({title:"全局默认模型（各 Agent/Provider 留空时回退）", basePath:"global", keyMap:{model:"default_model",base_url:"default_base_url",api_key:"default_api_key"}, config, update, fetchModels})}
@@ -693,11 +761,11 @@
                              </div>`)}
                          </div>
                        </div>`}
-                     ${it.output_kind === "spec_md" && html`<div class="plan"><code>${it.output || ""}</code></div>`}
-                     ${it.output_kind === "game_html" && html`
-                       ${it.local_file
-                         ? html`<iframe src=${"/output/" + it.local_file} sandbox="allow-scripts" scrolling="no" title="小游戏" style=${{width:"100%",height:"520px",border:"0",borderRadius:"12px",marginTop:"8px",overflow:"hidden"}}></iframe>`
-                         : html`<div class="plan">${it.output || ""}</div>`}`}
+                     ${it.output_kind === "spec_md" && html`<div class="plan"><code>${it.output || ""}</code></div>${envCostCard(it)}`}
+                      ${(it.output_kind === "game_html" || it.output_kind === "quiz_html") && html`
+                        ${it.local_file
+                          ? html`<iframe src=${"/output/" + it.local_file} sandbox="allow-scripts" data-blindbox=${it.output_kind === "quiz_html" ? "quiz" : "game"} title=${it.output_kind === "quiz_html" ? "趣味测试" : "小游戏"} style=${{width:"100%",height:it.output_kind === "quiz_html" ? "650px" : "520px",border:"0",borderRadius:"12px",marginTop:"8px",display:"block"}}></iframe>`
+                          : html`<div class="plan">${it.output || ""}</div>`}`}
                      ${it.output_kind === "image_strip" && (() => {
                        let pages = [];
                        try {
