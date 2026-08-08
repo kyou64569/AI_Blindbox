@@ -1,2 +1,0 @@
-/c/Users/asus/AppData/Local/npm-cache/_npx/50d6b1f34829f5bc/node_modules/.bin/esbuild
----

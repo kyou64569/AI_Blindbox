@@ -1,7 +1,0 @@
---- node_modules exists? ---
-ls: cannot access 'node_modules': No such file or directory
---- find esbuild binaries ---
-ls: cannot access 'node_modules/.bin/': No such file or directory
---- any esbuild pkg ---
-ls: cannot access 'node_modules/esbuild': No such file or directory
-ls: cannot access 'node_modules/vite': No such file or directory

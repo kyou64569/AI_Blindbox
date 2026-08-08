@@ -1,8 +1,0 @@
-import OK
-syms: resolve=True fallback=True exc=True norm=True
-executor.models = []
-creative.models[0].model = models/gemini-3.1-flash-lite
-_resolve_models group-level fallback: [{"model": "m", "base_url": "B", "api_key": "K", "temperature": null}]
-_resolve_models card empty -> group: [{"model": "m2", "base_url": "B", "api_key": "K", "temperature": null}]
-_resolve_models global fallback: [{"model": "mx", "base_url": "GB", "api_key": "GK", "temperature": null}]
-_executor_creds(text) chain models: ['agnes-image-2.0-flash', 'agnes-video-v2.0', 'agnes-2.5-flash']

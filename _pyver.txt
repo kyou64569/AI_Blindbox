@@ -1,6 +1,0 @@
-which python:
-/usr/bin/bash: line 1: which: command not found
-python --version:
-Python 3.13.14
-pip show pytest:
-WARNING: Package(s) not found: pytest

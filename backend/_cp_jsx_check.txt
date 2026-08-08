@@ -1,4 +1,0 @@
-OK   : D:/work/AI_Blindbox/frontend/src/components/ConfigPanel.jsx
-OK   : D:/work/AI_Blindbox/backend/_demo_main.js
-ALL_OK
-RC=0

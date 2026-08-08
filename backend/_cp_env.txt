@@ -1,7 +1,0 @@
---- package.json scripts ---
-scripts: {'dev': 'vite', 'build': 'vite build', 'preview': 'vite preview'}
-deps: ['react', 'react-dom']
---- esbuild? ---
-ls: cannot access 'node_modules/.bin/esbuild': No such file or directory
---- npx esbuild version ---
-/usr/bin/bash: line 1: ./node_modules/.bin/esbuild: No such file or directory
