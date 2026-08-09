@@ -398,7 +398,7 @@ providers:
 - 免构建前端 `demo.html`（React/preact + CDN）通过 `serve.py` 静态服务 + `/api` 代理，与后端端到端联通（已 curl 验证开盲盒返回完整概念卡/规划/成品）。
 
 ### 16.2 代码结构
-- `backend/app/config.py`：配置加载 + 大文件路径管理（默认 D 盘，含 C 盘敏感目录安全拦截）。
+- `backend/app/config.py`：配置加载 + 大文件路径管理（默认项目目录内，含系统盘敏感目录安全拦截）。
 - `backend/app/pipeline.py`：盲盒管道（随机种子 → 创意 → 规划 → 执行），OpenAI 兼容调用 + mock 兜底。
 - `backend/app/main.py`：FastAPI 路由（modes/config/open）。
 - `backend/settings.yaml`：全局配置（含 twist pool、模式、providers、mock 开关）。
@@ -422,7 +422,7 @@ providers:
 - 执行 Agent 调多模态时由 `providers.image / providers.video` 覆盖凭据。
 - 前端配置页（React 工程版 + 免构建 demo.html）新增三个 Agent 分组输入框 + providers 分组 + mock 开关。
 - **图片模式链路打通**：`_run_executor` 的 image 分支已接入真实 OpenAI 兼容 `images.generate`
-  （支持 url / b64_json 两种返回；b64 落盘 D 盘 output/）。mock 下返回明确占位文案引导填真实 key。
+  （支持 url / b64_json 两种返回；b64 落盘 output/）。mock 下返回明确占位文案引导填真实 key。
 - 新增 `/output` 静态路由（serve.py）与前端 img 预览，真实生成的图片可在浏览器直接查看。
 - 修复：配置保存热更新未同步 config 模块单例（pipeline 读取源）——新增 `config.set_settings` 修复。
 - 当前 mock=true 时图片模式展示占位提示；用户填好 `providers.image` 真实 base_url/api_key/model 并关闭 mock 后，图片即真实生成并可预览。
@@ -463,7 +463,7 @@ providers:
 技术栈环境约束（禁重型环境、推荐 Web 单文件＞Python 少量 pip＞Node 少量 npm、依赖 ≤5、磁盘 ≤1GB）→ 项目名称 → 创意概念 → 技术栈 → 目录结构（**单文件或 ≤10 文件小工程**）→ **目标用户与用途** → **功能闭环**（数据如何保存/导出/复用）→ 模块拆解 → **图片素材需求**（无法程序化绘制的元素才列图片，注明规格 PNG 透明底；否则"全部 Canvas 程序化"）→ 环境依赖清单 → 磁盘占用预估 → MVP 定义 → 验收标准（只留核心流程）。
 
 ### 19.5 种子主题近期去重（全局生效）
-- `draw_seed` 的 theme 维度排除最近 3 次用过的主题（`output/recent_themes.json` 持久化，D 盘），避免"总抽到潮汐碑林"式扎堆；其余维度仍纯随机。
+- `draw_seed` 的 theme 维度排除最近 3 次用过的主题（`output/recent_themes.json` 持久化），避免"总抽到潮汐碑林"式扎堆；其余维度仍纯随机。
 
 ### 19.6 前端配置页下拉修复
 - 模型/音色选择从 `<input list=datalist>` 改为**有列表时用 `<select>`**（可随时改选）+ 值不在列表时显示「自定义」手填框，修复"选中后无法再改选"。

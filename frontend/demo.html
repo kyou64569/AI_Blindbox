@@ -838,7 +838,7 @@
               </div>
             ${renderModelCards({title:"TTS 模型（云端模式必填 model / base_url / api_key；未填 base_url/api_key 则默认免费 Edge TTS；云端出错自动回退 Edge）", basePath:"providers.tts", note:"未填 base_url / api_key → 免费 Edge TTS（忽略 model）；同时填了 → 用此处 model 调用云端大模型，出错自动回退 Edge。"})}
 
-            <div class="paths">${"大文件目录（默认 D 盘，不写 C 盘）：\n缓存: " + (paths.cache_dir||"") + "\n产物: " + (paths.output_dir||"") + "\n上传: " + (paths.data_dir||"")}</div>
+            <div class="paths">${"大文件目录（默认项目目录内，可配置）：\n缓存: " + (paths.cache_dir||"") + "\n产物: " + (paths.output_dir||"") + "\n上传: " + (paths.data_dir||"")}</div>
             ${saved && html`<div class="note" style="color:var(--accent-2)">✓ 已保存</div>`}
             ${error && html`<div class="error">${error}</div>`}
             <button class="save-btn" style="margin-top:12px" onClick=${save}>保存配置</button>

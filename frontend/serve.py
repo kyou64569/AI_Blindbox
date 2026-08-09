@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 BACKEND = "http://127.0.0.1:8000"
 PORT = 5173
-# 生成产物目录（D 盘），通过 /output 暴露给前端预览
+# 生成产物目录（项目 output/），通过 /output 暴露给前端预览
 OUTPUT_DIR = (Path(__file__).resolve().parents[1] / "output").resolve()
 
 

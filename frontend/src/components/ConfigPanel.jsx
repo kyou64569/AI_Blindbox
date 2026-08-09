@@ -612,7 +612,7 @@ export default function ConfigPanel() {
       />
 
       <div className="paths">
-        大文件目录（默认 D 盘，不写 C 盘）：<br />
+        大文件目录（默认项目目录内，可配置）：<br />
         缓存: {paths.cache_dir}<br />
         产物: {paths.output_dir}<br />
         上传: {paths.data_dir}

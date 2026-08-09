@@ -140,7 +140,7 @@ class BlindBoxResult:
     env_warning: str | None = None  # code 模式技术栈黑名单校验命中的环境体积警告（重试后仍命中时透传前端）
 
 
-_RECENT_THEMES_FILE = "recent_themes.json"   # 最近用过的主题记录（放 output 目录，D 盘）
+_RECENT_THEMES_FILE = "recent_themes.json"   # 最近用过的主题记录（放 output 目录）
 _RECENT_THEMES_MAX = 3                        # 排除最近 N 次开盒的主题，避免近期连续撞同主题
 
 
@@ -1015,7 +1015,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
     - text：规划输出即正文（真实环境可再调一次文本模型扩写，这里直接返回）。
     - image：调用 providers.image 配置的图像模型（OpenAI 兼容 images.generate）。
     - video：本期 mock 占位，待接入视频生成 API。
-    - code-spec：生成 spec.md 落盘 D 盘 output/。
+    - code-spec：生成 spec.md 落盘 output/。
     - code-cli：本期仅预留接口。
     """
     if executor_type == "text":
@@ -1256,7 +1256,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                     if getattr(item, "url", None):
                         return item.url
                     if getattr(item, "b64_json", None):
-                        # 存为 D 盘文件（体积较大，落 output，不落 C 盘）
+                        # 存为本地文件（体积较大，落 output 产物目录）
                         import base64
                         out_dir = get_settings().output_dir
                         img_path = out_dir / f"{_slugify(plan)}_{uuid.uuid4().hex[:6]}.png"
@@ -1368,7 +1368,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
         return out
 
     if executor_type == "code-spec":
-        # 生成 spec.md，落到 output 目录（D 盘）
+        # 生成 spec.md，落到 output 产物目录
         out_dir = get_settings().output_dir
         spec_path = out_dir / f"spec_{_slugify(plan)}_{uuid.uuid4().hex[:6]}.md"
         spec_path.write_text(f"# 盲盒代码需求\n\n{plan}\n", encoding="utf-8")

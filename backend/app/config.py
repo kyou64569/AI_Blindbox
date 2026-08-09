@@ -1,6 +1,6 @@
 """配置加载与路径管理。
 
-所有体积较大文件（缓存/产物/上传）默认落在 D 盘项目目录，不写 C 盘。
+所有体积较大文件（缓存/产物/上传）默认放在项目目录内，避免写入系统盘。
 """
 from __future__ import annotations
 
@@ -14,20 +14,20 @@ import yaml
 # 项目根：本文件位于 backend/app/config.py，上溯一级到 backend
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# 大文件路径默认绑定到 D 盘项目目录，避免写入 C 盘
+# 大文件路径默认绑定到项目目录内，避免写入系统盘用户敏感目录
 DEFAULT_CACHE_DIR = PROJECT_ROOT / ".cache"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output"
 DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
 
 
 def _as_path(value: str | None, default: Path) -> Path:
-    """把配置中的路径字符串解析为绝对路径；若为空或不安全（落在 C 盘系统目录），回退默认。"""
+    """把配置中的路径字符串解析为绝对路径；若为空或不安全（落在系统盘用户敏感目录），回退默认。"""
     if not value:
         return default
     p = Path(value).expanduser()
     if not p.is_absolute():
         p = PROJECT_ROOT / p
-    # 安全兜底：不允许落进 C 盘用户敏感目录
+    # 安全兜底：不允许落进系统盘（Windows 的 C:）用户敏感目录
     dangerous = ("AppData", "Desktop", "Documents", "Downloads", "Program Files")
     parts = set(p.parts)
     if p.drive.upper() == "C:" and any(d in parts for d in dangerous):
