@@ -19,13 +19,13 @@
 - **结果归档**：每次开盒自动落盘 `output/result_*.json`（含 seed / 概念卡 / 规划 / 成品 / 所用模型），前端有历史面板，支持「用此 seed 重抽」
 - **全免构建可用**：前端 `demo.html` 本地 vendor 运行，不依赖 CDN
 
-## 目录结构（均在 D 盘，体积大的文件不落 C 盘）
+## 目录结构（大文件默认放在项目目录内，路径可在 settings.yaml 的 paths 调整）
 
 ```
-D:\work\AI_Blindbox\
+AI_Blindbox\
 ├─ backend\              # FastAPI 后端 + 管道编排（venv 在 backend/.venv）
 │  ├─ app\
-│  │  ├─ config.py       # 配置加载 + 大文件路径管理（默认 D 盘）
+│  │  ├─ config.py       # 配置加载 + 大文件路径管理（默认项目目录内）
 │  │  ├─ pipeline.py     # 盲盒管道：随机种子 → 创意 → 规划 → 执行（含种子池/黑名单校验/归档）
 │  │  └─ main.py         # FastAPI 路由
 │  ├─ settings.yaml      # 全局配置（模型/温度/种子池/模式/黑名单）——含真实 API key，**已被 gitignore**
@@ -37,9 +37,9 @@ D:\work\AI_Blindbox\
 │  ├─ demo.html          # 免构建演示页（preact + 本地 vendor），无需 npm install
 │  ├─ serve.py           # 免构建静态服务器 + /api 代理
 │  └─ vite.config.js
-├─ output\               # 生成产物（spec.md / 图片 / 音频 / result_*.json 归档），D 盘
-├─ .cache\               # 守护进程日志，D 盘
-├─ data\                 # 用户上传，D 盘
+├─ output\               # 生成产物（spec.md / 图片 / 音频 / result_*.json 归档）
+├─ .cache\               # 守护进程日志
+├─ data\                 # 用户上传
 ├─ docs\                 # 设计文档（system_design.md、mermaid 图）
 ├─ start_all.cmd / start.py / stop.py / stop_all.cmd   # 一键启停
 └─ backend_run.cmd / frontend_run.cmd                  # 守护脚本（崩溃自愈）
@@ -51,7 +51,7 @@ D:\work\AI_Blindbox\
 
 前端 `frontend/demo.html` 通过 `frontend/vendor/` 下的本地 preact/htm 运行，**无需联网、不依赖任何 CDN**。
 ```bash
-# 1) 启动后端（D 盘 venv，注意不用裸 python）
+# 1) 启动后端（注意：不要用系统裸 python，用项目 venv）
 backend\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 # 2) 启动免构建前端（静态 + 代理）
@@ -63,7 +63,7 @@ backend\.venv\Scripts\python.exe frontend\serve.py
 
 ```bash
 cd frontend
-npm install            # 需联网；装到 frontend/node_modules（D 盘）
+npm install            # 需联网；装到 frontend/node_modules
 npm run dev            # http://127.0.0.1:5173 ，Vite 代理 /api -> 8000
 ```
 
@@ -119,7 +119,7 @@ npm run dev            # http://127.0.0.1:5173 ，Vite 代理 /api -> 8000
 
 ## 注意事项
 
-- **大文件路径**：所有体积大的文件（产物 / 缓存 / 上传）默认落在 D 盘项目目录，绝不写 C 盘；`settings.yaml` 的 `paths` 可调整，但有安全检查拦截写入 C 盘敏感目录。
+- **大文件路径**：产物 / 缓存 / 上传等大文件默认放在项目目录内（可在 `settings.yaml` 的 `paths` 调整，支持相对路径，基于项目根解析）；建议不要放到系统盘，配置里有安全检查拦截写入系统盘敏感目录。
 - **代码模式重档（code-cli 调 Claude Code / Codex）本期仅预留接口，未实现**；当前产出 spec.md，由用户自行用编程 Agent 开发。
-- **主题去重**：最近 3 次用过的主题不会立即重复出现，记录在 `output/recent_themes.json`（D 盘持久化）。
+- **主题去重**：最近 3 次用过的主题不会立即重复出现，记录在 `output/recent_themes.json`（持久化，随产物目录走）。
 - **git 安全**：`backend/settings.yaml`、`.env`、venv、产物目录均被 `.gitignore` 忽略；`_` 前缀的临时调试文件约定不入库。

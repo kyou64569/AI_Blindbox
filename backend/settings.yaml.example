@@ -1,7 +1,8 @@
 paths:
-  cache_dir: D:/work/AI_Blindbox/.cache
-  output_dir: D:/work/AI_Blindbox/output
-  data_dir: D:/work/AI_Blindbox/data
+  # 相对路径基于 backend 代码目录解析（也可填绝对路径）；留空用默认值
+  cache_dir: .cache
+  output_dir: output
+  data_dir: data
 global:
   default_model: agnes-2.5-flash
   default_base_url: https://apihub.agnes-ai.com/v1
