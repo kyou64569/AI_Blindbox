@@ -26,11 +26,11 @@
 
 | 改动 | 路径 |
 |------|------|
-| 改 | `D:\work\AI_Blindbox\backend\app\pipeline.py` |
-| 改 | `D:\work\AI_Blindbox\backend\app\main.py` |
-| 改 | `D:\work\AI_Blindbox\frontend\src\components\ResultPanel.jsx` |
-| 改 | `D:\work\AI_Blindbox\frontend\demo.html` |
-| 新增（测试） | `D:\work\AI_Blindbox\backend\tests\test_model_used.py` |
+| 改 | `backend/app/pipeline.py` |
+| 改 | `backend/app/main.py` |
+| 改 | `frontend/src/components/ResultPanel.jsx` |
+| 改 | `frontend/demo.html` |
+| 新增（测试） | `backend/tests/test_model_used.py` |
 
 **关联上下文（不改，仅供理解）**：`backend/app/config.py`（settings 提供 `mock` 开关与 `output_dir`）、`frontend/src/App.jsx`（把 `/api/open` 的 result 透传给 ResultPanel）、`frontend/src/styles.css`（全局样式，可选放 `.model-hint`）。
 
