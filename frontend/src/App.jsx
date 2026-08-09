@@ -50,7 +50,9 @@ export default function App() {
   };
   const openBox = () => runOpen(selected);
 
-  const modeName = (id) => modes.find((m) => m.id === id)?.name || id || "";
+  // 已下线模式的兜底名称（历史记录仍显示可读名）
+  const LEGACY_MODE_NAMES = { novella: "中篇播客（已合并）", longpod: "长播客（已合并）" };
+  const modeName = (id) => modes.find((m) => m.id === id)?.name || LEGACY_MODE_NAMES[id] || id || "";
   const loadHistory = async () => {
     setHistLoading(true);
     setHistError(null);

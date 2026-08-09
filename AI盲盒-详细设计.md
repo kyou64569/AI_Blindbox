@@ -441,4 +441,36 @@ providers:
 
 ---
 
-*本文档基于 2026-07-27 的方案讨论整理，作为 AI 盲盒 v1 的设计基线。后续实现以本文件字段规范为准。*
+## 19. 本轮更新（2026-08-08）：代码模式「环境体积约束」体系 + 独立工具池 + 主题去重
+
+### 19.1 代码模式定位（与用户确认）
+- 代码模式**只生成 spec.md**（可直接交给编程 Agent 如 Claude Code/OpenCode 迭代开发），不直接产出代码。
+- 创意可宏大，但 spec **不得引导安装重型环境**（引擎/美术工具链/数据库/CUDA/Docker 等），避免多抽几个盲盒硬盘告急。
+- 愿景：用户没想法时开盲盒拿灵感 + 可落地的轻量蓝图。
+
+### 19.2 技术栈环境黑名单（`modes[code].blocked_env` + `pipeline.py`）
+- 默认 17 项：unreal/ue5/unity/godot/blender/substance/fmod/wwise/mysql/sql server/postgres/postgresql/oracle/cuda/docker/android studio/xcode。
+- 流程：`run_blind_box` 对 code-spec/code-cli 在落盘前扫描 spec 文本 → 命中则**带警告重试 planner 一次**（prompt 要求"保留创意、改用轻量载体"）→ 重试仍命中则在 spec 顶部插入**环境体积警告头**，并透传 `result.env_warning` 到前端展示红色警告。
+- 误报防护：扫描前先剔除 spec 中复述【技术栈环境约束】的章节（`_strip_env_constraint_section`），"模型复述禁令清单"不再误伤；真实选型集中在【技术栈】等章节，不受影响。
+- 前端：揭示页/历史页 spec 展示区新增**环境成本卡**（从 spec 提取【环境依赖清单】【磁盘占用预估】）+ 警告条。
+
+### 19.3 code 模式独立工具池（`modes[code].pool`）
+- 与全局 `randomness.pool` 互不影响；`draw_seed(mode)` 优先取 mode 级池。
+- 与全局池能力一致：前端配置页可**手动增删、🎲 生成单条（/api/generate-seed 带 mode_id）、一键整体刷新（/api/seed/refresh-all 带 mode_id）**。
+- 池内容偏"实用工具"方向：theme=本地文件处理/效率笔记/数据转换/个人记账/时间管理/创作辅助/图片处理/文本工具；constraint=本地持久化/一键导出/离线可用/快捷键/批量/中文；twist=拖拽导入/彩蛋/撤销/模板/主题切换。
+
+### 19.4 代码模式 planner 模板（最终章节）
+技术栈环境约束（禁重型环境、推荐 Web 单文件＞Python 少量 pip＞Node 少量 npm、依赖 ≤5、磁盘 ≤1GB）→ 项目名称 → 创意概念 → 技术栈 → 目录结构（**单文件或 ≤10 文件小工程**）→ **目标用户与用途** → **功能闭环**（数据如何保存/导出/复用）→ 模块拆解 → **图片素材需求**（无法程序化绘制的元素才列图片，注明规格 PNG 透明底；否则"全部 Canvas 程序化"）→ 环境依赖清单 → 磁盘占用预估 → MVP 定义 → 验收标准（只留核心流程）。
+
+### 19.5 种子主题近期去重（全局生效）
+- `draw_seed` 的 theme 维度排除最近 3 次用过的主题（`output/recent_themes.json` 持久化，D 盘），避免"总抽到潮汐碑林"式扎堆；其余维度仍纯随机。
+
+### 19.6 前端配置页下拉修复
+- 模型/音色选择从 `<input list=datalist>` 改为**有列表时用 `<select>`**（可随时改选）+ 值不在列表时显示「自定义」手填框，修复"选中后无法再改选"。
+
+### 19.7 仓库卫生
+- `.gitignore` 新增 `/_*`、`/backend/_*`、`/backend/tests/_qa_*` 临时文件规则；已移除 56 个调试产物跟踪（本地文件保留）。`backend/settings.yaml` 含真实 key，确认从未入库（含 git 历史）。
+
+---
+
+*本文档基于 2026-07-27 的方案讨论整理，作为 AI 盲盒 v1 的设计基线；后续实现以本文件字段规范为准，最新实现状态见第 19 节。*

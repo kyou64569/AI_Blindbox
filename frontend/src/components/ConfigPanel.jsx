@@ -19,6 +19,77 @@ function Field({ label, value, onChange, type = "text", placeholder = "" }) {
  * basePath 指向该组在 config 中的路径前缀，例如 "agents.creative"。
  * keyMap 把界面字段映射到配置里的实际字段名（全局默认用 default_*，其余用 model/base_url/api_key）。
  */
+// 模型/音色选择器：有选项列表时用 <select>（可随时改选），下拉恒含「自定义…」项，
+// 选择后显示手填输入框（保留自由输入）；无列表时退化为单个普通输入框
+function ModelPicker({ value, options, onPick, placeholder, emptyLabel }) {
+  const [custom, setCustom] = useState(false);
+  const v = (value || "").trim();
+  const opts = options || [];
+  if (opts.length === 0) {
+    return (
+      <input
+        value={v}
+        placeholder={placeholder || "手填"}
+        onChange={(e) => onPick(e.target.value)}
+        style={{ flex: 1 }}
+      />
+    );
+  }
+  const inList = opts.includes(v);
+  const effective = custom || (v !== "" && !inList);
+  const selValue = effective ? "__custom__" : v;
+  return (
+    <div style={{ display: "flex", gap: 6, flex: 1, minWidth: 0 }}>
+      <select
+        value={selValue}
+        onChange={(e) => {
+          const sv = e.target.value;
+          if (sv === "__custom__") {
+            setCustom(true);
+          } else {
+            setCustom(false);
+            onPick(sv);
+          }
+        }}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          height: 36,
+          background: "var(--panel-2, #1f232c)",
+          color: "var(--text, #e6e8ec)",
+          border: "1px solid var(--border, #2a2f3a)",
+          borderRadius: 8,
+          padding: "0 8px",
+          fontSize: 13,
+        }}
+      >
+        {!effective && v === "" ? <option value="">{emptyLabel || "（留空）"}</option> : null}
+        <option value="__custom__">（自定义…）</option>
+        {opts.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+      {effective ? (
+        <input
+          value={v}
+          placeholder={placeholder || "自定义"}
+          onChange={(e) => {
+            const newValue = e.target.value;
+            onPick(newValue);
+            // 如果输入的值匹配选项列表中的某个值，自动切换回选择模式
+            if (opts.includes(newValue.trim())) {
+              setCustom(false);
+            }
+          }}
+          style={{ flex: 1 }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function ModelSlot({ title, note, basePath, keyMap, config, update }) {
   const [models, setModels] = useState([]);
   const [fetching, setFetching] = useState(false);
@@ -31,7 +102,6 @@ function ModelSlot({ title, note, basePath, keyMap, config, update }) {
     return node?.[cfgKey];
   };
   const set = (uiKey, val) => update(`${basePath}.${keyMap[uiKey]}`, val);
-  const listId = "models-" + basePath.replace(/\./g, "-");
 
   const fetchModels = async () => {
     setErr(null);
@@ -76,18 +146,13 @@ function ModelSlot({ title, note, basePath, keyMap, config, update }) {
         <div className="form-row">
           <label>模型 model（填好上方 base_url / key 后可点按钮拉取列表选择）</label>
           <div style={{ display: "flex", gap: 8 }}>
-            <input
-              list={listId}
+            <ModelPicker
               value={get("model") || ""}
+              options={models}
+              onPick={(v) => set("model", v)}
               placeholder="留空=用全局默认；或从下拉选 / 手填"
-              onChange={(e) => set("model", e.target.value)}
-              style={{ flex: 1 }}
+              emptyLabel="（留空=用全局默认）"
             />
-            <datalist id={listId}>
-              {models.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
             <button
               type="button"
               className="save-btn"
@@ -119,7 +184,6 @@ function ModelCard({ basePath, idx, card, total, config, update }) {
   const [err, setErr] = useState(null);
   const getv = (k) => (card && card[k] != null ? card[k] : "");
   const setv = (k, v) => update(`${basePath}.models.${idx}.${k}`, v);
-  const listId = "models-" + `${basePath}.models.${idx}`.replace(/\./g, "-");
 
   const swap = (dir) => {
     const node = basePath.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), config);
@@ -172,15 +236,18 @@ function ModelCard({ basePath, idx, card, total, config, update }) {
       <div className="form-row">
         <label>模型 model</label>
         <div style={{ display: "flex", gap: 8 }}>
-          <input list={listId} value={getv("model") || ""} placeholder="模型名，如 gpt-4o-mini-tts" onChange={(e) => setv("model", e.target.value)} style={{ flex: 1 }} />
-          <datalist id={listId}>
-            {models.map((m) => (<option key={m} value={m} />))}
-          </datalist>
+          <ModelPicker
+            value={getv("model") || ""}
+            options={models}
+            onPick={(v) => setv("model", v)}
+            placeholder="模型名，如 gpt-4o-mini-tts"
+            emptyLabel="（手填）"
+          />
           <button type="button" className="save-btn" style={{ padding: "8px 12px", whiteSpace: "nowrap" }} disabled={fetching} onClick={fetchModels}>
             {fetching ? "获取中…" : "获取列表"}
           </button>
         </div>
-        {models.length > 0 && <div className="note">已获取 {models.length} 个模型，点输入框可下拉选择。</div>}
+        {models.length > 0 && <div className="note">已获取 {models.length} 个模型，点下拉可随时改选。</div>}
         {err && <div className="error">{err}</div>}
       </div>
       <Field label="API Base URL" value={getv("base_url")} onChange={(v) => setv("base_url", v)} placeholder="留空=用全局默认" />
@@ -314,6 +381,81 @@ export default function ConfigPanel() {
     if (initialPoolRef.current) update("randomness.pool", JSON.parse(JSON.stringify(initialPoolRef.current)));
   };
 
+  // ---- code 模式独立工具池（与全局池同能力：手动增删 + 🎲 生成 + 整体刷新） ----
+  const codeModeIdx = () => (config?.modes || []).findIndex((m) => m.id === "code");
+  const getModePool = (dim) => {
+    const i = codeModeIdx();
+    return (i >= 0 && config?.modes?.[i]?.pool?.[dim]) || [];
+  };
+  const [modePoolUI, setModePoolUI] = useState({ addText: {}, gen: {}, genErr: {} });
+  const [modeRefreshing, setModeRefreshing] = useState(false);
+  const [modeRefreshErr, setModeRefreshErr] = useState(null);
+  const modePoolPath = (dim) => {
+    const idx = codeModeIdx();
+    if (idx < 0 || idx >= (config?.modes || []).length) return null;
+    return `modes.${idx}.pool.${dim}`;
+  };
+  const editModeItem = (dim, idx, val) => {
+    const path = modePoolPath(dim);
+    if (!path) return;
+    const arr = [...getModePool(dim)];
+    arr[idx] = val;
+    update(path, arr);
+  };
+  const removeModeItem = (dim, idx) => {
+    const path = modePoolPath(dim);
+    if (!path) return;
+    update(path, getModePool(dim).filter((_, i) => i !== idx));
+  };
+  const addModeItem = (dim) => {
+    const path = modePoolPath(dim);
+    if (!path) return;
+    const v = (modePoolUI.addText?.[dim] || "").trim();
+    if (!v || getModePool(dim).includes(v)) return;
+    update(path, [...getModePool(dim), v]);
+    setModePoolUI((s) => ({ ...s, addText: { ...s.addText, [dim]: "" } }));
+  };
+  const genModeSeed = async (dim) => {
+    setModePoolUI((s) => ({ ...s, gen: { ...s.gen, [dim]: true }, genErr: { ...s.genErr, [dim]: null } }));
+    try {
+      const resp = await fetch("/api/generate-seed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dimension: dim, existing: getModePool(dim), mode_id: "code" }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || "生成失败");
+      const v = (data.seed || "").trim();
+      if (!v) throw new Error("模型返回为空");
+      const path = modePoolPath(dim);
+      if (path && !getModePool(dim).includes(v)) update(path, [...getModePool(dim), v]);
+    } catch (e) {
+      setModePoolUI((s) => ({ ...s, genErr: { ...s.genErr, [dim]: e.message } }));
+    } finally {
+      setModePoolUI((s) => ({ ...s, gen: { ...s.gen, [dim]: false } }));
+    }
+  };
+  const refreshModeSeeds = async () => {
+    const idx = codeModeIdx();
+    if (idx < 0) return;
+    setModeRefreshing(true);
+    setModeRefreshErr(null);
+    try {
+      const resp = await fetch("/api/seed/refresh-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode_id: "code" }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || "刷新失败");
+      update(`modes.${idx}.pool`, data.pool);
+    } catch (e) {
+      setModeRefreshErr(e.message);
+    } finally {
+      setModeRefreshing(false);
+    }
+  };
+
   const save = async () => {
     setError(null);
     try {
@@ -388,6 +530,47 @@ export default function ConfigPanel() {
         <button type="button" className="save-btn"
           style={{ marginTop: "10px", background: "transparent", color: "var(--muted)" }}
           onClick={resetPool}>↺ 恢复默认种子池</button>
+
+        {codeModeIdx() >= 0 && (
+          <>
+            <div className="section-title" style={{ marginTop: 18 }}>代码模式独立工具池（code 专用）</div>
+            <div className="note">代码盲盒使用独立种子池（与上方全局池互不影响），抽取「实用工具」方向。同样支持手动增删改、🎲 生成、一键刷新。</div>
+            {poolDims.map((dim) => (
+              <div className="config-form" style={{ marginTop: "10px" }} key={`mode-${dim}`}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div className="section-title" style={{ margin: 0 }}>{dimCn[dim]}（{dim}）</div>
+                  <button type="button" className="save-btn" style={{ padding: "6px 12px" }}
+                    disabled={modePoolUI.gen?.[dim]} onClick={() => genModeSeed(dim)}>
+                    {modePoolUI.gen?.[dim] ? "生成中…" : "🎲 生成新种子"}
+                  </button>
+                </div>
+                {getModePool(dim).map((it, idx) => (
+                  <div style={{ display: "flex", gap: "6px", marginTop: "6px" }} key={idx}>
+                    <input value={it} onChange={(e) => editModeItem(dim, idx, e.target.value)} style={{ flex: 1 }} />
+                    <button type="button" className="save-btn"
+                      style={{ padding: "6px 10px", background: "var(--danger)", borderColor: "var(--danger)" }}
+                      onClick={() => removeModeItem(dim, idx)}>×</button>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+                  <input placeholder={`新增一条${dimCn[dim]}…`}
+                    value={modePoolUI.addText?.[dim] || ""}
+                    onChange={(e) => setModePoolUI((s) => ({ ...s, addText: { ...s.addText, [dim]: e.target.value } }))}
+                    onKeyDown={(e) => { if (e.key === "Enter") addModeItem(dim); }} style={{ flex: 1 }} />
+                  <button type="button" className="save-btn" style={{ padding: "6px 10px" }} onClick={() => addModeItem(dim)}>添加</button>
+                </div>
+                {modePoolUI.genErr?.[dim] && <div className="error">{modePoolUI.genErr[dim]}</div>}
+              </div>
+            ))}
+            <button type="button" className="save-btn"
+              style={{ marginTop: "10px", background: "var(--accent)", color: "#fff", width: "100%" }}
+              disabled={modeRefreshing}
+              onClick={refreshModeSeeds}>
+              {modeRefreshing ? "⏳ 正在刷新..." : "🔀 一键刷新 code 工具池"}
+            </button>
+            {modeRefreshErr && <div className="error">{modeRefreshErr}</div>}
+          </>
+        )}
       </div>
 
       <ModelSlot

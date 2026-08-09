@@ -169,17 +169,19 @@ def _remember_theme(theme: str) -> None:
         pass
 
 
-def draw_seed() -> str:
+def draw_seed(mode: "dict[str, Any] | None" = None) -> str:
     """从 twist pool 随机抽取 per_open_draw 个种子，组合成可复现的 seed 串。
 
-    theme 维度带「近期去重」：排除最近 _RECENT_THEMES_MAX 次用过的主题，
-    避免连续抽到同一主题（其余维度保持纯随机）；池被排空时回退全池。
+    - 优先使用 mode 级独立池（mode.pool，如 code 模式的「工具池」），
+      未配置时回退全局 randomness.pool。
+    - theme 维度带「近期去重」：排除最近 _RECENT_THEMES_MAX 次用过的主题，
+      避免连续抽到同一主题（其余维度保持纯随机）；池被排空时回退全池。
     """
     rnd = get_settings().randomness
     if not rnd.get("enabled", True):
         return "seed_fixed"
     n = int(rnd.get("per_open_draw", 2))
-    pool = rnd.get("pool", {}) or {}
+    pool = (mode or {}).get("pool") or rnd.get("pool", {}) or {}
     picked: list[str] = []
     for dim, items in pool.items():
         if not items:
@@ -256,6 +258,13 @@ _FALLBACK_POOL = {
     "constraint": ["必须出现一只白鹭", "只用黑白灰三色", "含一段旁白", "画面中央有一扇门"],
     "twist": ["主角早已不在人世", "故事是倒着发生的", "一切都是一场梦", "观众才是真正的主角"],
 }
+# 模式独立池（如 code 工具池）的兜底池：必须是能开发成实用工具的功能方向，而非世界观/意象
+_FALLBACK_TOOL_POOL = {
+    "theme": ["文件批处理", "Markdown 笔记", "数据格式转换", "待办清单", "番茄计时", "本地搜索", "图片压缩", "剪贴板历史"],
+    "style": ["极简清爽", "复古终端", "温暖手账", "冷峻数据", "毛玻璃拟态", "报纸排版"],
+    "constraint": ["数据必须本地持久化，刷新不丢失", "必须支持一键导出文件", "必须完全离线可用，无网络请求", "必须提供快捷键操作", "支持批量处理", "界面使用中文"],
+    "twist": ["支持拖拽文件直接导入", "附带一个让用户眼前一亮的彩蛋", "所有操作都可撤销", "提供模板快速开始", "支持暗色亮色主题切换"],
+}
 
 
 def _clean_seed_text(raw: str) -> str:
@@ -280,46 +289,69 @@ def _clean_seed_text(raw: str) -> str:
     return text.strip('"').strip("'").strip("。").strip("、").strip()
 
 
-def _build_seed_prompt(dim: str, existing: list[str]) -> tuple[str, str, str]:
-    """构建种子生成的 system prompt、user prompt 和 forbid_hint。"""
+def _build_seed_prompt(dim: str, existing: list[str], tool: bool = False) -> tuple[str, str, str]:
+    """构建种子生成的 system prompt、user prompt 和 forbid_hint。
+
+    - tool=False（默认）：全局创意池，产出「有画面感」的世界观/意象种子。
+    - tool=True：模式独立池（当前为 code 工具池），产出「能开发成实用软件工具」的功能方向种子，
+      并明确禁止世界观/意象类词条（如 '苔藓时钟' '糖霜浮雕'）。
+    """
     dim_cn = _DIM_CN.get(dim, dim)
-    dim_guide = _get_dim_guide(dim)
-    system = (
-        "你是一个为「AI 盲盒」随机池创作新种子词条的助手。"
-        f"请根据维度【{dim_cn}】生成【一条】新颖、有画面感的中文种子词条，"
-        "适合作为创意盲盒的随机注入项。\n"
-        f"【维度定义】{dim_guide}\n"
-        "只输出这一条词条本身，不要任何解释、不要引号、不要编号、不要句号结尾。"
-        "\n\n重要：新种子必须在【具体意象 / 角色 / 动物 / 物体 / 场景元素】上与已有种子"
-        "完全不同——只保持同一维度类别即可，不要沿用已有种子里出现的任何具体意象。"
-    )
-    forbid_hint = ""
-    if existing:
+    dim_guide = _get_dim_guide(dim, tool)
+    if tool:
+        system = (
+            "你是一个为「AI 盲盒·代码工具池」创作新种子词条的助手。"
+            f"请根据维度【{dim_cn}】生成【一条】能用于开发【实用软件工具】的词条，"
+            "适合作为工具开发盲盒的随机注入项。\n"
+            f"【维度定义】{dim_guide}\n"
+            "只输出这一条词条本身，不要任何解释、不要引号、不要编号、不要句号结尾。"
+            "\n\n重要：必须是【具体可开发的功能方向】，禁止世界观/意象/氛围类词条"
+            "（如 '苔藓时钟' '潮汐碑林' '糖霜浮雕' 这类艺术意象一律不要）。"
+            "新种子必须在具体功能点上与已有种子完全不同——引入一个全新的功能方向。"
+        )
+        forbid_hint = (
+            "\n\n已有种子（仅供参考，请勿沿用其中的具体功能点，请引入一个全新的、不同的功能方向）：\n"
+            + "\n".join(f"- {e}" for e in existing)
+        ) if existing else ""
+    else:
+        system = (
+            "你是一个为「AI 盲盒」随机池创作新种子词条的助手。"
+            f"请根据维度【{dim_cn}】生成【一条】新颖、有画面感的中文种子词条，"
+            "适合作为创意盲盒的随机注入项。\n"
+            f"【维度定义】{dim_guide}\n"
+            "只输出这一条词条本身，不要任何解释、不要引号、不要编号、不要句号结尾。"
+            "\n\n重要：新种子必须在【具体意象 / 角色 / 动物 / 物体 / 场景元素】上与已有种子"
+            "完全不同——只保持同一维度类别即可，不要沿用已有种子里出现的任何具体意象。"
+        )
         forbid_hint = (
             "\n\n已有种子（仅供参考，请勿沿用其中的具体角色 / 动物 / 物体，"
             "请引入一个全新的、不同的具象元素）：\n"
             + "\n".join(f"- {e}" for e in existing)
-        )
+        ) if existing else ""
     user = f"请为维度【{dim_cn}】创作一条全新的种子。{forbid_hint}"
     return system, user, forbid_hint
 
 
-def generate_pool_seed(dim: str, existing: list[str] | None = None) -> str:
+def generate_pool_seed(dim: str, existing: list[str] | None = None, mode_id: str | None = None) -> str:
     """为指定维度生成一条「当前配置中没有」的新种子词条。
 
+    - mode_id 指定时按「模式独立池」（当前为 code 工具池）生成：产出能开发成实用工具的
+      功能方向词条（tool 指导语 + 工具兜底池），避免刷出世界观/意象类种子。
     - 优先调大模型；提示词**强制要求新种子在具象元素上与已有种子完全不同**，
       避免模型换汤不换药（例如已有「橘猫」却反复生成含橘猫的变体）。
     - 若生成结果仍锚定在已有意象（4 字滑窗命中），自动重试；多次仍锚定或调用失败，
       回退内置兜底池（已避开 existing，且不含橘猫等锚定意象），保证按钮始终可用。
     - 凭据复用 creative Agent 配置，留空回退 global。
     """
+    tool = bool(mode_id)
     dim_cn = _DIM_CN.get(dim, dim)
     existing = [str(x).strip() for x in (existing or []) if str(x).strip()]
 
     def _pick_fallback() -> str:
-        cands = [c for c in _FALLBACK_POOL.get(dim, ["新种子"]) if c not in existing]
+        pool = _FALLBACK_TOOL_POOL if tool else _FALLBACK_POOL
+        cands = [c for c in pool.get(dim, ["新种子"]) if c not in existing]
         if not cands:  # 兜底池用尽，直接加序号避免空串
-            cands = [f"{dim_cn}种子{len(existing) + 1}"]
+            cands = [f"{dim_cn}工具{len(existing) + 1}" if tool else f"{dim_cn}种子{len(existing) + 1}"]
         return random.choice(cands)
 
     settings = get_settings()
@@ -333,7 +365,7 @@ def generate_pool_seed(dim: str, existing: list[str] | None = None) -> str:
         return _pick_fallback()
 
     # 按维度定制指导语
-    system, user, forbid_hint = _build_seed_prompt(dim, existing)
+    system, user, forbid_hint = _build_seed_prompt(dim, existing, tool)
 
     def call(creds: dict) -> str:
         client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=90, max_retries=0)
@@ -361,18 +393,24 @@ def generate_pool_seed(dim: str, existing: list[str] | None = None) -> str:
     return out
 
 
-def refresh_all_seeds() -> dict[str, list[str]]:
+def refresh_all_seeds(mode_id: str | None = None) -> dict[str, list[str]]:
     """一键刷新所有维度的种子池——并行调用多模型生成，大幅提速且分散 API 压力。
 
     保持各维度种子数量不变，全部替换为新种子。
     从 executor chain（deepseek/step/gemini/agnes 四家 API）轮转模型，每维度平均分配。
+    - mode_id 指定且该模式配置了独立 pool → 刷新该模式的池；
+    - 否则刷新全局 randomness.pool。
     """
     import logging as _log
     import threading
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     settings = get_settings()
-    pool = (settings.randomness or {}).get("pool", {}) or {}
+    mode = settings.get_mode(mode_id) if mode_id else None
+    if mode is not None and mode.get("pool"):
+        pool = mode["pool"] or {}
+    else:
+        pool = (settings.randomness or {}).get("pool", {}) or {}
     new_pool: dict[str, list[str]] = {}
 
     # 收集所有可用模型（去重），分散到不同 API 提供商避免限频
@@ -406,7 +444,7 @@ def refresh_all_seeds() -> dict[str, list[str]]:
     for dim in ("theme", "style", "constraint", "twist"):
         results[dim] = [None] * len(pool.get(dim, []))
 
-    # 线程锁，保护 results 字典的并发读写
+    # 线程锁，保护 results 字典的并发读写和 model_idx 的原子递增
     results_lock = threading.Lock()
     model_idx = 0
 
@@ -416,7 +454,7 @@ def refresh_all_seeds() -> dict[str, list[str]]:
             existing = [s for s in results[dim][:task_i] if s is not None]
         for retry in range(3):
             try:
-                seed = _generate_with_model(dim, existing, creds)
+                seed = _generate_with_model(dim, existing, creds, tool=bool(mode_id))
                 seed = seed.strip()
                 # 对 theme/style 维度进行长度限制（Python字符串是Unicode，按字符截断是安全的）
                 if dim in ("theme", "style") and len(seed) > 12:
@@ -433,8 +471,10 @@ def refresh_all_seeds() -> dict[str, list[str]]:
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {}
         for dim, i in tasks:
-            creds = unique_models[model_idx % len(unique_models)]
-            model_idx += 1
+            # 使用锁确保 model_idx 的原子递增，避免竞态条件导致模型分配不均
+            with results_lock:
+                creds = unique_models[model_idx % len(unique_models)]
+                model_idx += 1
             futures[executor.submit(_gen_one, dim, i, creds)] = (dim, i)
 
         for future in as_completed(futures):
@@ -456,9 +496,9 @@ def refresh_all_seeds() -> dict[str, list[str]]:
     return new_pool
 
 
-def _generate_with_model(dim: str, existing: list[str], creds: dict) -> str:
-    """用指定的单个模型凭据生成一条种子（不 fallback）。"""
-    system, user, _ = _build_seed_prompt(dim, existing)
+def _generate_with_model(dim: str, existing: list[str], creds: dict, tool: bool = False) -> str:
+    """用指定的单个模型凭据生成一条种子（不 fallback）。tool=True 时按工具池指导语生成。"""
+    system, user, _ = _build_seed_prompt(dim, existing, tool)
 
     client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=180, max_retries=0)
     for _attempt in range(2):
@@ -484,7 +524,17 @@ def _generate_with_model(dim: str, existing: list[str], creds: dict) -> str:
     raise RuntimeError(f"模型 {creds['model']} 多次返回空内容或锚定")
 
 
-def _get_dim_guide(dim: str) -> str:
+def _get_dim_guide(dim: str, tool: bool = False) -> str:
+    if tool:
+        if dim == "theme":
+            return "种子是一个【实用工具/应用的功能主题】（如 '本地文件处理' '数据转换' '个人记账'）。必须精炼：2-8 个汉字，指向一个能开发成软件工具的具体功能场景，不要世界观/意象。"
+        elif dim == "style":
+            return "种子是一个【软件 UI/界面风格】（如 '极简清爽' '复古终端' '毛玻璃拟态'）。必须精炼：2-6 个汉字，是前端可实现的具体视觉风格，不要艺术意象风格。"
+        elif dim == "constraint":
+            return "种子是一条【软件功能约束】（如 '数据必须本地持久化' '必须支持一键导出' '必须离线可用'）。是一条开发中可落地的功能要求，不是创作意象。"
+        elif dim == "twist":
+            return "种子是一个【软件功能亮点/彩蛋特性】（如 '支持拖拽导入' '所有操作可撤销' '附带彩蛋功能'）。是一个可实现的具体功能特性，不是剧情反转。"
+        return "必须精炼，且是可开发的具体功能方向。"
     if dim == "theme":
         return "种子是一个【主题场景/世界观标签】（如 '赛博禅院' '深海火炉'）。必须精炼：2-6 个汉字，一个核心意象组合。"
     elif dim == "style":
@@ -666,7 +716,7 @@ def run_blind_box(mode_id: str, seed: str | None = None) -> BlindBoxResult:
     if mode is None:
         raise ValueError(f"未知模式: {mode_id}")
 
-    seed = seed or draw_seed()
+    seed = seed or draw_seed(mode)
 
     # 兼容旧配置：pipeline_mode 已移除，若用户仍配置则警告
     _pipeline_mode = settings.global_.get("pipeline_mode")

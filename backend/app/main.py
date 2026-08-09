@@ -111,6 +111,7 @@ class ModelsRequest(BaseModel):
 class GenerateSeedRequest(BaseModel):
     dimension: str
     existing: list[str] = []
+    mode_id: str | None = None   # 指定模式时从该模式的独立池读取/写入
 
 
 @app.get("/api/modes")
@@ -277,14 +278,20 @@ def save_config(req: SaveConfigRequest):
 def generate_seed(req: GenerateSeedRequest):
     """为指定 twist 维度调用大模型生成一条当前配置中没有的新种子词条。
 
-    优先用请求携带的 existing；若为空则从 settings.yaml 的 pool 读取该维度现有条目，
-    避免生成重复种子。返回 {"seed": "..."}。
+    优先用请求携带的 existing；若为空则从设置中读取该维度现有条目，
+    避免生成重复种子。mode_id 指定时读取该模式的独立池。返回 {"seed": "..."}。
     """
     dim = req.dimension
-    pool = (config.get_settings().randomness or {}).get("pool", {}) or {}
+    settings = config.get_settings()
+    if req.mode_id:
+        mode = settings.get_mode(req.mode_id) or {}
+        mode_pool = mode.get("pool") or {}
+        pool = mode_pool
+    else:
+        pool = (settings.randomness or {}).get("pool", {}) or {}
     existing = req.existing or pool.get(dim, []) or []
     try:
-        seed = pipeline.generate_pool_seed(dim, existing)
+        seed = pipeline.generate_pool_seed(dim, existing, req.mode_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"seed": seed}
@@ -295,28 +302,46 @@ def refresh_all_seeds(request: Request):
     """一键刷新全部种子池——每维度调用 generate_pool_seed 逐个生成新种子。
 
     保持各维度种子数量不变，将所有旧种子替换为独立随机生成的新种子。
+    body 可带 mode_id：指定模式时刷新该模式的独立池（若已配置），否则刷新全局池。
     返回 {pool: {dim: [seed, ...]}}，前端可直接 setConfig 使用。
     """
     # 速率限制：防止恶意调用消耗API配额
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = request.client.host if request.client and request.client.host else "unknown"
     if not _check_rate_limit(client_ip):
         raise HTTPException(
             status_code=429,
             detail=f"请求过于频繁，请在 {_RATE_LIMIT_WINDOW} 秒后再试"
         )
 
+    mode_id: str | None = None
     try:
-        new_pool = pipeline.refresh_all_seeds()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    # 同步写入 settings.yaml —— 单次持锁，覆盖「读 raw → 写盘 → 重载 → 热更新单例」全过程。
-    # config.set_settings 内部使用独立的 RLock，与 _config_lock 无嵌套关系，不会死锁。
-    # pipeline 侧统一通过 config.get_settings() 读取，无需再做模块级裸赋值。
+        body = request.json()
+        mode_id = (body or {}).get("mode_id") or None
+    except Exception:
+        mode_id = None
+
+    # 同步写入 settings.yaml —— 单次持锁，覆盖「读 raw → 生成 → 写盘 → 重载 → 热更新单例」全过程。
+    # 将 pool 生成移入锁内，避免并发请求生成相同 pool 后竞争写入
     with _config_lock:
         raw = config.get_settings().raw
-        if "randomness" not in raw:
-            raw["randomness"] = {}
-        raw["randomness"]["pool"] = new_pool
+        try:
+            new_pool = pipeline.refresh_all_seeds(mode_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+        if mode_id:
+            mode_found = False
+            for m in raw.get("modes", []):
+                if m.get("id") == mode_id:
+                    m["pool"] = new_pool
+                    mode_found = True
+                    break
+            if not mode_found:
+                raise HTTPException(status_code=404, detail=f"模式 {mode_id} 不存在")
+        else:
+            if "randomness" not in raw:
+                raw["randomness"] = {}
+            raw["randomness"]["pool"] = new_pool
         with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
             yaml.safe_dump(raw, f, allow_unicode=True, sort_keys=False)
         config.set_settings(config.load_settings(SETTINGS_PATH))

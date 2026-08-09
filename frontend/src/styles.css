@@ -29,7 +29,13 @@ header.topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--bg);
+  padding: 12px 0 10px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
 }
 header.topbar h1 { font-size: 22px; font-weight: 600; margin: 0; }
 .tabs { display: flex; gap: 8px; }
