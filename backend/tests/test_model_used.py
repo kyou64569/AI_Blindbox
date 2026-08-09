@@ -1,8 +1,7 @@
 """开盒结果「由哪个模型完成」提示 (model_used) 的回归测试，全部 mock，不真实调用 API。
 
 运行：
-  C:/Users/asus/.workbuddy/binaries/python/versions/3.13.12/python.exe -m pytest ^
-      D:/work/AI_Blindbox/backend/tests/ -q
+  <解释器> -m pytest backend/tests/ -q
 
 覆盖：
   - text / image / video / game / tts 在 mock 模式下 model_used == "Mock 模拟"
@@ -14,7 +13,7 @@ import os
 import sys
 
 # 把 backend 加入路径，确保 `from app import ...` 可导入（pipeline 内部用相对导入）
-sys.path.insert(0, r"D:/work/AI_Blindbox/backend")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import pipeline, config
 

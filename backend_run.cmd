@@ -2,7 +2,9 @@
 REM Backend supervisor: restarts uvicorn on exit (with delay).
 REM Prefer start.py (unified launcher, single terminal).
 
-set ROOT=D:\work\AI_Blindbox
+REM 项目根基于本脚本所在目录推导（不写死盘符，便于迁移/他人部署）
+set "ROOT=%~dp0"
+set "ROOT=%ROOT:~0,-1%"
 set VENV_PY=%ROOT%\backend\.venv\Scripts\python.exe
 set CACHE=%ROOT%\.cache
 if not exist "%CACHE%" mkdir "%CACHE%"

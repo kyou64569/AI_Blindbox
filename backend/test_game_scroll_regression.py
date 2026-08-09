@@ -2,22 +2,21 @@
 
 核心验证目标：修复后，小游戏应在 520px 高的 iframe 内【完整显示、无滚动条】。
 
-运行方式（本机裸 python 被 uv 劫持，需用受管解释器）：
-  C:/Users/asus/.workbuddy/binaries/python/versions/3.13.12/python.exe \
-      D:/work/AI_Blindbox/backend/test_game_scroll_regression.py
+运行方式（本机裸 python 可能被环境管理器劫持，建议使用受管解释器）：
+  <解释器> backend/test_game_scroll_regression.py
 
 说明：
 - 以包方式 `from app import pipeline, config` 引入，pipeline 内部用相对导入，
   不可直接 `import pipeline`。
 - 仅把内存单例 `config.SETTINGS.raw["mock"] = True` 打开离线 mock 分支
   （规划/创意/执行器全部走本地规则，无需网络与 API key），不修改 settings.yaml。
-- 运行会在 D:/work/AI_Blindbox/output/ 下生成 game_*.html 与 result_*.json 归档产物，属正常。
+- 运行会在 output/ 下生成 game_*.html 与 result_*.json 归档产物，属正常。
 """
 import os
 import sys
 
 # 把 backend 加入路径，确保能以包方式 `from app import ...` 引入
-sys.path.insert(0, r"D:\work\AI_Blindbox\backend")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import pipeline, config  # noqa: E402
 

@@ -1,8 +1,7 @@
 """多模型配置改造的回退逻辑单元测试（全部 mock，不真实调用 API）。
 
 运行：
-  C:/Users/asus/.workbuddy/binaries/python/versions/3.13.12/python.exe -m pytest ^
-      D:/work/AI_Blindbox/backend/tests/ -q
+  <解释器> -m pytest backend/tests/ -q
 
 覆盖：
   T1/T2 旧单 model -> models 迁移（load_settings 规范化）
@@ -16,7 +15,7 @@ import os
 import sys
 
 # 把 backend 加入路径，确保 `from app import ...` 可导入（pipeline 内部用相对导入）
-sys.path.insert(0, r"D:/work/AI_Blindbox/backend")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import yaml
 
