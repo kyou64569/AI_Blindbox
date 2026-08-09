@@ -2,7 +2,8 @@
 REM AI Blind Box - one-click launcher
 REM NOTE: keep this file ASCII-only (cmd.exe uses GBK codepage)
 
-set ROOT=D:\work\AI_Blindbox
+set "ROOT=%~dp0"
+set "ROOT=%ROOT:~0,-1%"
 set VENV_PY=%ROOT%\backend\.venv\Scripts\python.exe
 
 if not exist "%VENV_PY%" (

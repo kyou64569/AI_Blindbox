@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # AI 盲盒 —— 一键启动 / 停止 / 守护 脚本
 #
-# 用法（在项目根目录 D:\work\AI_Blindbox 下运行，需 Git Bash 或 WSL）：
+# 用法（在项目根目录下运行，需 Git Bash 或 WSL）：
 #   ./start_all.sh           启动前后端（已运行则跳过），非阻塞
 #   ./start_all.sh watch     启动并守护：前端进程丢失会自动重启（Ctrl+C 退出守护，服务继续）
 #   ./start_all.sh stop      停止服务（按端口精确杀，干净）
@@ -12,7 +12,9 @@
 
 set -u
 
-ROOT="/d/work/AI_Blindbox"
+# 项目根基于脚本所在目录推导（不写死盘符，便于迁移/他人部署）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$SCRIPT_DIR"
 VENV_PY="$ROOT/backend/.venv/Scripts/python.exe"
 BACKEND_DIR="$ROOT/backend"
 FRONTEND_DIR="$ROOT/frontend"
