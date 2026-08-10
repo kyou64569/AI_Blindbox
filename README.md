@@ -8,12 +8,12 @@
 
 ## 成品展示
 
-以下是几次实际开盒的产物，覆盖图片 / 漫画 / 插画故事等模式：
+以下是几次实际开盒的产物，覆盖换装捏脸 / 表情包 / 朋友圈三种模式：
 
-| 4 格漫画 | 图片模式 | 图片模式 |
+| 换装捏脸 | 表情包 | 朋友圈 |
 |:---:|:---:|:---:|
-| ![镜中九机](docs/images/gallery/01-comic-mirror.png) | ![赛博猫](docs/images/gallery/02-cyber-cat.png) | ![蒸汽朋克机器人](docs/images/gallery/03-steampunk-cyborg.png) |
-| 镜中九机材料琉璃琉流 | 赛博机房的橘猫 | 蒸汽朋克机器人在废墟下棋 |
+| ![蒸汽朋克小人](docs/images/gallery/04-character-lizard.png) | ![可爱女生表情](docs/images/gallery/05-meme-girl.png) | ![女性角色朋友圈](docs/images/gallery/06-moments-warrior.png) |
+| 蒸汽朋克蒸汽机龙守护者 | 可爱女生惊讶表情 | 女性角色朋友圈动态 |
 
 ## 特性一览
 
