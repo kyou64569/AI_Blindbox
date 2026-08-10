@@ -45,29 +45,29 @@ randomness:
   per_open_draw: 3
   pool:
     theme:
-    - Cyberpunk Ruins
-    - Deep-Sea City-State
-    - Tang Dynasty Marketplace
-    - Post-Apocalyptic Greenhouse
-    - Wasteland Tea Ceremony
-    - Cloudborne Forge
+    - 量子禅院
+    - 机械敦煌
+    - 酸性冰川
+    - 废土茶道
+    - 霓虹苗寨
+    - 深海图书馆
     style:
-    - Ink-Wash Realism
-    - Vaporwave
-    - Stark Documentary
-    - Fairy Tale Illustration
-    - Glitch-Art Ukiyo-e
+    - 故障艺术
+    - 胶片颗粒
+    - 低多边形
+    - 浮世绘拼贴
+    - 赛博水墨
+    - 暗黑童话
     constraint:
-    - Must include an orange cat
-    - Use only three colors
-    - Include a monologue
-    - Black, white, and grey only
-    - Include a frozen vintage pocket watch
+    - 必须出现一只白鹭
+    - 只用黑白灰三色
+    - 含一段旁白
+    - 画面中央有一扇门
     twist:
-    - The protagonist is actually an AI
-    - The ending is the beginning
-    - Silence speaks louder than words
-    - The reflection in the mirror moves first
+    - 主角早已不在人世
+    - 故事是倒着发生的
+    - 一切都是一场梦
+    - 观众才是真正的主角
 modes:
 - id: image
   name: Picture
@@ -165,30 +165,6 @@ modes:
   executor_type: tts
   output_handler: audio_file
   episode_length: short
-- id: novella
-  name: Podcast Medium
-  creative_prompt: Create a richer podcast topic or story, suitable for ~800-char
-    audio.
-  planner_template: 'Output a Chinese podcast script (~800 chars), conversational,
-    vivid, with natural pauses. Insert atmosphere markers: [BGM: description], [pause
-    2s]. Only the script with markers.
-
-    '
-  executor_type: tts
-  output_handler: audio_file
-  episode_length: medium
-- id: longpod
-  name: Podcast Long
-  creative_prompt: Create a deep podcast topic or long story, suitable for ~1500-char
-    narrative.
-  planner_template: 'Output a Chinese podcast script (~1500 chars), conversational
-    and vivid. Insert atmosphere markers: [BGM: description], [pause 2s]. Only the
-    full script.
-
-    '
-  executor_type: tts
-  output_handler: audio_file
-  episode_length: long
 - id: video
   name: Video
   creative_prompt: Create a short video creative concept.
@@ -254,6 +230,36 @@ modes:
     enabled: false
     tool: claude
     sandbox: true
+  pool:
+    theme:
+    - 文件批处理
+    - Markdown 笔记
+    - 数据格式转换
+    - 待办清单
+    - 番茄计时
+    - 本地搜索
+    - 图片压缩
+    - 剪贴板历史
+    style:
+    - 极简清爽
+    - 复古终端
+    - 温暖手账
+    - 冷峻数据
+    - 毛玻璃拟态
+    - 报纸排版
+    constraint:
+    - 数据必须本地持久化，刷新不丢失
+    - 必须支持一键导出文件
+    - 必须完全离线可用，无网络请求
+    - 必须提供快捷键操作
+    - 支持批量处理
+    - 界面使用中文
+    twist:
+    - 支持拖拽文件直接导入
+    - 附带一个让用户眼前一亮的彩蛋
+    - 所有操作都可撤销
+    - 提供模板快速开始
+    - 支持暗色亮色主题切换
 - id: game
   name: 小游戏
   creative_prompt: 构思一个有趣、可用鼠标/键盘在浏览器里操作的小游戏创意（结合抽到的随机种子）。
