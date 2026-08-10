@@ -2494,6 +2494,17 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
             import logging
             logging.warning("[archive] image_strip 归档失败: %s", e)
 
+    # 角色卡等模式的附图（image_url 字段）：远程 URL 也下载到本地，
+    # 避免链接失效导致头像/附图丢失（与 output 的 URL 下载兜底同一策略）。
+    if (isinstance(result.image_url, str) and result.image_url.strip()
+            and re.match(r"^https?://", result.image_url.strip())):
+        dl = _download_remote(
+            result.image_url.strip(), out_dir,
+            f"img_{_slugify(result.seed or 'img', max_len=20)}_{uuid.uuid4().hex[:6]}",
+        )
+        if dl:
+            result.image_url = dl
+
     # 纯文本成品（诗歌/角色卡/命名/谜题/小说等）-> 额外落一份可读 md，
     # 方便文件系统直接查看与历史面板浏览；local_file 指向该 md。
     # 排除 URL / 已落盘的绝对路径（前者是远程成品，后者 code-spec/图片已处理）。
