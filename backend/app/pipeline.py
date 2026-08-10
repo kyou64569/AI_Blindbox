@@ -2521,6 +2521,19 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
         md_path.write_text(md_content, encoding="utf-8")
         local_file = str(md_path.relative_to(out_dir))
 
+    # 文字成品文件（text_file）：让「图 + 文」类成品可分别访问文字与图片。
+    # - 纯文本模式：local_file 已是 md，text_file 复用同一文件；
+    # - 图片模式（有 caption / image_url）：把 caption 文字单独落一份可读 md。
+    text_file: str | None = None
+    if local_file and str(local_file).endswith(".md"):
+        text_file = str(local_file)
+    elif local_file and (result.image_url or result.caption):
+        caption_text = (result.caption or "").strip()
+        if caption_text:
+            md_path = out_dir / f"text_{_slugify(caption_text, max_len=30)}_{uuid.uuid4().hex[:6]}.md"
+            md_path.write_text(caption_text, encoding="utf-8")
+            text_file = str(md_path.relative_to(out_dir))
+
     record = {
         "id": rid,
         "mode": mode_id,
@@ -2535,6 +2548,7 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
         "caption": result.caption,
         "image_url": result.image_url,
         "local_file": local_file,
+        "text_file": text_file,
         "env_warning": result.env_warning,
     }
     json_path = out_dir / f"result_{_slugify(result.concept, max_len=30)}_{rid}.json"
@@ -2543,6 +2557,7 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
     return {
         "json": str(json_path.relative_to(out_dir)),
         "local_file": local_file,
+        "text_file": text_file,
         "timestamp": ts,
     }
 

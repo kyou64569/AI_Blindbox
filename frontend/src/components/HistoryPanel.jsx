@@ -197,7 +197,17 @@ export default function HistoryPanel({
                     </a>
                     {it.local_file && (
                       <a href={`/output/${it.local_file}`} target="_blank" rel="noreferrer">
-                        本地成品
+                        {it.local_file.endsWith(".md") ? "文字成品" : "图片成品"}
+                      </a>
+                    )}
+                    {it.text_file && it.text_file !== it.local_file && (
+                      <a href={`/output/${it.text_file}`} target="_blank" rel="noreferrer">
+                        文字成品
+                      </a>
+                    )}
+                    {it.image_url && /\.(png|jpe?g|gif|webp)$/i.test(it.image_url) && (
+                      <a href={`/output/${it.image_url}`} target="_blank" rel="noreferrer">
+                        图片成品
                       </a>
                     )}
                   </div>

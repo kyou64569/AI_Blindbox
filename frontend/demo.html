@@ -723,10 +723,16 @@
                     <div class="archive-links">
                       <a href=${"/output/" + result.archived.json} target="_blank" rel="noreferrer">归档记录 (JSON)</a>
                       ${result.archived.local_file
-                        ? html`<a href=${"/output/" + result.archived.local_file} target="_blank" rel="noreferrer">本地成品</a>`
+                        ? html`<a href=${"/output/" + result.archived.local_file} target="_blank" rel="noreferrer">${result.archived.local_file.endsWith(".md") ? "文字成品" : "图片成品"}</a>`
                         : result.output_kind === "image_url" || result.output_kind === "video_file" || result.output_kind === "image_strip"
                           ? html`<span class="archive-note">（远程成品未下载到本地，可手动保存）</span>`
                           : null}
+                      ${result.archived.text_file && result.archived.text_file !== result.archived.local_file
+                        ? html`<a href=${"/output/" + result.archived.text_file} target="_blank" rel="noreferrer">文字成品</a>`
+                        : null}
+                      ${result.image_url && /\.(png|jpe?g|gif|webp)$/i.test(result.image_url)
+                        ? html`<a href=${"/output/" + result.image_url} target="_blank" rel="noreferrer">图片成品</a>`
+                        : null}
                     </div>
                   </div>`}
                 <button class="open-btn" style="margin-top:16px" onClick=${openBox}>再抽一次（换种子）</button>
@@ -949,7 +955,9 @@
                      ${it.model_used ? html`<div class="model-hint">由 ${it.model_used} 生成</div>` : null}
                     <div class="archive-links">
                       <a href=${"/output/" + it.json} target="_blank" rel="noreferrer">归档 JSON</a>
-                      ${it.local_file && html`<a href=${"/output/" + it.local_file} target="_blank" rel="noreferrer">本地成品</a>`}
+                      ${it.local_file && html`<a href=${"/output/" + it.local_file} target="_blank" rel="noreferrer">${it.local_file.endsWith(".md") ? "文字成品" : "图片成品"}</a>`}
+                      ${it.text_file && it.text_file !== it.local_file && html`<a href=${"/output/" + it.text_file} target="_blank" rel="noreferrer">文字成品</a>`}
+                      ${it.image_url && /\.(png|jpe?g|gif|webp)$/i.test(it.image_url) && html`<a href=${"/output/" + it.image_url} target="_blank" rel="noreferrer">图片成品</a>`}
                     </div>
                     <button class="save-btn" style=${{marginTop:"10px"}}
                       onClick=${() => { setSelected(it.mode); setTab("box"); runOpen(it.mode, it.seed); }}>用此 seed 重抽</button>

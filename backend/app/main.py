@@ -151,6 +151,7 @@ def list_history(mode: str | None = None, limit: int = 100):
             "plan": rec.get("plan"),
             "output": rec.get("output"),
             "local_file": rec.get("local_file"),
+            "text_file": rec.get("text_file"),
             "json": p.name,
             "tts_info": rec.get("tts_info", ""),
             "model_used": rec.get("model_used", ""),
