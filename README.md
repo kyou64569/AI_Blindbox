@@ -12,8 +12,8 @@
 
 | 换装捏脸 | 表情包 | 朋友圈 |
 |:---:|:---:|:---:|
-| ![蒸汽朋克小人](docs/images/gallery/04-character-lizard.png) | ![可爱女生表情](docs/images/gallery/05-meme-girl.png) | ![女性角色朋友圈](docs/images/gallery/06-moments-warrior.png) |
-| 蒸汽朋克蒸汽机龙守护者 | 可爱女生惊讶表情 | 女性角色朋友圈动态 |
+| ![](docs/images/gallery/04-character-cool.png) | ![](docs/images/gallery/05-meme-girl.png) | ![](docs/images/gallery/06-moments-warrior.png) |
+| `04-character-cool.png` | `05-meme-girl.png` | `06-moments-warrior.png` |
 
 ## 特性一览
 
