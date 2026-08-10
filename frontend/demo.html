@@ -936,7 +936,12 @@
                          ? html`<video src=${it.local_file ? "/output/" + it.local_file : it.output} controls style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}}></video>`
                          : it.output_kind === "audio_file"
                            ? html`<audio src=${it.local_file ? "/output/" + it.local_file : it.output} controls preload="metadata" style=${{width:"100%",borderRadius:"12px",marginTop:"8px"}}></audio>`
-                           : html`<div style=${{position:"relative",display:"inline-block",maxWidth:"100%"}}>
+                           : ["recipe","tarot","character"].includes(it.mode)
+                             ? html`<div style=${{display:"flex",flexDirection:"column",alignItems:"center",marginTop:"8px"}}>
+                                 <img src=${it.local_file ? "/output/" + it.local_file : it.output} style=${{maxWidth:"480px",width:"100%",height:"auto",objectFit:"contain",borderRadius:"12px",display:"block",background:"var(--panel-2)"}} alt="result" />
+                                 ${it.caption ? html`<div style=${{maxWidth:"480px",width:"100%",marginTop:"10px",padding:"12px 14px",boxSizing:"border-box",background:"var(--panel-2)",border:"1px solid var(--border)",borderRadius:"12px",color:"var(--text)",fontSize:14,lineHeight:1.7,whiteSpace:"pre-wrap",wordBreak:"break-word",textAlign:"left",textShadow:"none"}}>${it.caption}</div>` : null}
+                               </div>`
+                             : html`<div style=${{position:"relative",display:"inline-block",maxWidth:"100%"}}>
                                  <img src=${it.local_file ? "/output/" + it.local_file : it.output} style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px",display:"block"}} alt="result" />
                                  ${it.caption ? html`<div style=${{position:"absolute",left:0,right:0,bottom:0,padding:"10px 12px",borderRadius:"0 0 12px 12px",color:"#fff",background:"linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))",fontSize:20,fontWeight:700,textAlign:"center",textShadow:"0 1px 3px rgba(0,0,0,0.5)"}}>${it.caption}</div>` : null}
                                </div>`}
