@@ -6,6 +6,15 @@
 
 > 详细设计见 [AI盲盒-详细设计.md](./AI盲盒-详细设计.md)
 
+## 成品展示
+
+以下是几次实际开盒的产物，覆盖图片 / 漫画 / 插画故事等模式：
+
+| 4 格漫画 | 图片模式 | 图片模式 |
+|:---:|:---:|:---:|
+| ![镜中九机](docs/images/gallery/01-comic-mirror.png) | ![赛博猫](docs/images/gallery/02-cyber-cat.png) | ![蒸汽朋克机器人](docs/images/gallery/03-steampunk-cyborg.png) |
+| 镜中九机材料琉璃琉流 | 赛博机房的橘猫 | 蒸汽朋克机器人在废墟下棋 |
+
 ## 特性一览
 
 - **3-Agent 管道**：创意（发散）→ 规划（收敛为固定格式）→ 执行（按模式分发），每个 Agent 可独立配置模型 / base_url / key / 温度
