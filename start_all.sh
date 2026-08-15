@@ -18,8 +18,6 @@ ROOT="$SCRIPT_DIR"
 VENV_PY="$ROOT/backend/.venv/Scripts/python.exe"
 BACKEND_DIR="$ROOT/backend"
 FRONTEND_DIR="$ROOT/frontend"
-BPORT=8000
-FPORT=5173
 RUNDIR="$ROOT/.run"
 BPID="$RUNDIR/backend.pid"
 FPID="$RUNDIR/frontend.pid"
@@ -42,6 +40,29 @@ finally:
     s.close()
 PY
 }
+
+# 动态分配端口：从 base 开始找第一个空闲端口（占用则 +1，最多 20 个）
+assign_port() {
+  "$VENV_PY" - "$1" <<'PY' 2>/dev/null
+import socket, sys
+base = int(sys.argv[1])
+for p in range(base, base + 20):
+    s = socket.socket()
+    try:
+        s.bind(("127.0.0.1", p)); print(p); break
+    except OSError:
+        continue
+    finally:
+        s.close()
+else:
+    print(base)
+PY
+}
+
+BPORT=$(assign_port 8000)
+FPORT=$(assign_port 5173)
+if [ "$BPORT" != "8000" ]; then echo "  [port] 8000 被占用，后端使用 $BPORT"; fi
+if [ "$FPORT" != "5173" ]; then echo "  [port] 5173 被占用，前端使用 $FPORT"; fi
 
 # 按端口精确杀死占用进程（Windows 用 netstat.exe 解析 PID，兼容 Git Bash）
 kill_port() {
@@ -80,17 +101,18 @@ PY
 }
 
 # 启动单个服务（剥离终端，写 PID 仅供 status 展示；stop/watch 不依赖其精确性）
+# $7 可选：环境变量前缀（如 "BLINDBOX_FE_PORT=5174 BLINDBOX_BE_URL=http://127.0.0.1:8001"）
 launch() {
-  local name=$1 dir=$2 cmdargs=$3 pidfile=$4 log=$5 port=$6
+  local name=$1 dir=$2 cmdargs=$3 pidfile=$4 log=$5 port=$6 envp=${7:-}
   if [ "$(port_listening $port)" = "yes" ]; then
     echo "[$name] 端口 $port 已被占用，跳过（如需接管请先 stop）。"
     return 0
   fi
-  echo "[$name] 启动中…"
+  echo "[$name] 启动中… (端口 $port)"
   if command -v setsid >/dev/null 2>&1; then
-    ( cd "$dir" && setsid "$VENV_PY" $cmdargs > "$log" 2>&1 & echo $! > "$pidfile" )
+    ( cd "$dir" && setsid env $envp "$VENV_PY" $cmdargs > "$log" 2>&1 & echo $! > "$pidfile" )
   else
-    ( cd "$dir" && nohup "$VENV_PY" $cmdargs > "$log" 2>&1 & echo $! > "$pidfile" )
+    ( cd "$dir" && nohup env $envp "$VENV_PY" $cmdargs > "$log" 2>&1 & echo $! > "$pidfile" )
   fi
   sleep 3
   if [ "$(port_listening $port)" = "yes" ]; then
@@ -101,7 +123,7 @@ launch() {
 }
 
 start_backend()  { launch backend  "$BACKEND_DIR"  "-m uvicorn app.main:app --host 127.0.0.1 --port $BPORT"  "$BPID" "$BLOG" "$BPORT"; }
-start_frontend() { launch frontend "$FRONTEND_DIR" "serve.py"                                                          "$FPID" "$FLOG" "$FPORT"; }
+start_frontend() { launch frontend "$FRONTEND_DIR" "serve.py"                                                          "$FPID" "$FLOG" "$FPORT" "BLINDBOX_FE_PORT=$FPORT BLINDBOX_BE_URL=http://127.0.0.1:$BPORT"; }
 
 stop_service() {
   local name=$1 port=$2 pidfile=$3

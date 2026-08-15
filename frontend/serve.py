@@ -4,15 +4,21 @@
   backend/.venv/Scripts/python.exe serve.py
 默认 http://127.0.0.1:5173 ，托管本目录（含 demo.html）并把 /api 转发到后端。
 
+环境变量（由 start.py / start_all.sh 在端口被占用自动换端口后传入）：
+  BLINDBOX_FE_PORT=5174   前端监听端口（默认 5173）
+  BLINDBOX_BE_URL=http://127.0.0.1:8001   后端地址（默认 8000）
+
 特性：
   - ThreadingHTTPServer：浏览器并行加载 demo.html + vendor 多个文件时不再串行卡顿。
-  - 进程异常退出后由启动脚本(run_frontend.cmd)自动重启；本脚本自身也对端口占用做等待重试，
-    避免「一启动就因端口冲突退出」导致服务彻底起不来。
+  - 端口被占用时自动 +1 更换（不杀进程、不无限等待），最多尝试 10 个端口。
+  - 进程异常退出后由启动脚本(run_frontend.cmd)自动重启。
 """
 from __future__ import annotations
 
 import http.server
+import os
 import re
+import socket
 import socketserver
 import sys
 import time
@@ -22,10 +28,26 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-BACKEND = "http://127.0.0.1:8000"
-PORT = 5173
+BACKEND = os.environ.get("BLINDBOX_BE_URL", "http://127.0.0.1:8000").strip()
+PORT = int(os.environ.get("BLINDBOX_FE_PORT", "5173").strip())
+MAX_PORT_TRIES = 10
 # 生成产物目录（项目 output/），通过 /output 暴露给前端预览
 OUTPUT_DIR = (Path(__file__).resolve().parents[1] / "output").resolve()
+
+
+def _find_free_port(base: int) -> int:
+    """从 base 开始找第一个可监听端口（占用则 +1），找不到回退 base。"""
+    for p in range(base, base + MAX_PORT_TRIES):
+        with socket.socket() as s:
+            try:
+                s.bind(("127.0.0.1", p))
+                return p
+            except OSError:
+                continue
+    return base
+
+
+
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -153,20 +175,16 @@ class ReuseTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 
 def _create_server() -> "ReuseTCPServer":
-    """创建服务器；端口被占用时等待重试，直到可用。"""
-    while True:
-        try:
-            return ReuseTCPServer(("127.0.0.1", PORT), Handler)
-        except OSError as e:
-            winerror = getattr(e, "winerror", None)
-            if winerror == 10048 or "Address already in use" in str(e):
-                sys.stderr.write(
-                    f"[warn] 端口 {PORT} 被占用，等待释放后重试（每 3 秒一次）...\n"
-                )
-                sys.stderr.flush()
-                time.sleep(3)
-                continue
-            raise
+    """创建服务器；端口被占用时自动 +1 更换（不杀进程、不无限等待）。"""
+    global PORT
+    chosen = _find_free_port(PORT)
+    if chosen != PORT:
+        sys.stderr.write(
+            f"[warn] 端口 {PORT} 被占用，已自动更换为 {chosen}\n"
+        )
+        sys.stderr.flush()
+        PORT = chosen
+    return ReuseTCPServer(("127.0.0.1", PORT), Handler)
 
 
 if __name__ == "__main__":

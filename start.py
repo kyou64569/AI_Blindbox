@@ -2,10 +2,14 @@
 
 Starts backend (uvicorn) and frontend (serve.py), monitors health,
 auto-restarts on crash. Ctrl+C to stop all services.
+
+端口策略：默认后端 8000 / 前端 5173；若被占用自动 +1 更换（不杀占用进程），
+并在启动时打印实际地址。
 """
 import os
 import sys
 import time
+import socket
 import subprocess
 from pathlib import Path
 
@@ -18,6 +22,11 @@ VENV_PY = ROOT / "backend" / ".venv" / "Scripts" / "python.exe"
 BACKEND_DIR = ROOT / "backend"
 FRONTEND_DIR = ROOT / "frontend"
 
+# 默认端口；被占用时自动 +1 更换
+BE_PORT_DEFAULT = 8000
+FE_PORT_DEFAULT = 5173
+MAX_PORT_TRIES = 20
+
 
 def log(msg: str) -> None:
     """Print with timestamp, flush immediately so user sees it."""
@@ -26,22 +35,16 @@ def log(msg: str) -> None:
     print(line, flush=True)
 
 
-def kill_port(port: int) -> None:
-    """Kill any process listening on given port."""
-    try:
-        out = subprocess.check_output(
-            ["netstat", "-ano"], timeout=5
-        ).decode("gbk", errors="ignore")
-        for line in out.splitlines():
-            if f":{port} " in line and "LISTENING" in line:
-                parts = line.strip().split()
-                pid = parts[-1].strip()
-                if pid.isdigit():
-                    subprocess.run(["taskkill", "/F", "/PID", pid],
-                                   capture_output=True, timeout=5)
-                    log(f"killed old PID {pid} on port {port}")
-    except Exception:
-        pass
+def find_free_port(base: int) -> int:
+    """从 base 开始找第一个可监听端口（占用则 +1），找不到抛异常。"""
+    for p in range(base, base + MAX_PORT_TRIES):
+        with socket.socket() as s:
+            try:
+                s.bind(("127.0.0.1", p))
+                return p
+            except OSError:
+                continue
+    raise RuntimeError(f"端口 {base}~{base + MAX_PORT_TRIES - 1} 全部被占用")
 
 
 def health_check(port: int) -> bool:
@@ -66,11 +69,13 @@ def main() -> None:
         input("Press Enter to exit...")
         sys.exit(1)
 
-    # Clean up old processes
-    log("cleaning up old processes on ports 8000, 5173...")
-    kill_port(8000)
-    kill_port(5173)
-    time.sleep(1)
+    # 动态分配端口（被占用自动 +1 更换，不杀占用进程）
+    be_port = find_free_port(BE_PORT_DEFAULT)
+    fe_port = find_free_port(FE_PORT_DEFAULT)
+    port_note = f"backend={be_port} (默认 {BE_PORT_DEFAULT})" + (
+        " ← 8000 被占用，已换端口" if be_port != BE_PORT_DEFAULT else "")
+    log(f"using ports: {port_note}; frontend={fe_port}" + (
+        " (← 5173 被占用，已换端口)" if fe_port != FE_PORT_DEFAULT else ""))
 
     # Set up log files
     CACHE.mkdir(parents=True, exist_ok=True)
@@ -78,11 +83,11 @@ def main() -> None:
     frontend_log = CACHE / "frontend.log"
 
     # --- Start backend ---
-    log("starting backend on port 8000...")
+    log(f"starting backend on port {be_port}...")
     be_fh = open(backend_log, "wb")
     be_proc = subprocess.Popen(
         [str(VENV_PY), "-m", "uvicorn", "app.main:app",
-         "--host", "127.0.0.1", "--port", "8000"],
+         "--host", "127.0.0.1", "--port", str(be_port)],
         cwd=str(BACKEND_DIR),
         stdout=be_fh,
         stderr=subprocess.STDOUT,
@@ -91,14 +96,18 @@ def main() -> None:
     log(f"backend PID: {be_proc.pid}")
     time.sleep(3)
 
-    # --- Start frontend ---
-    log("starting frontend on port 5173...")
+    # --- Start frontend (env 传入实际端口与后端地址，serve.py 自身也会自动换端口) ---
+    log(f"starting frontend on port {fe_port}...")
+    fe_env = dict(os.environ)
+    fe_env["BLINDBOX_FE_PORT"] = str(fe_port)
+    fe_env["BLINDBOX_BE_URL"] = f"http://127.0.0.1:{be_port}"
     fe_fh = open(frontend_log, "wb")
     fe_proc = subprocess.Popen(
         [str(VENV_PY), "serve.py"],
         cwd=str(FRONTEND_DIR),
         stdout=fe_fh,
         stderr=subprocess.STDOUT,
+        env=fe_env,
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
     log(f"frontend PID: {fe_proc.pid}")
@@ -110,10 +119,10 @@ def main() -> None:
     for attempt in range(7):
         time.sleep(3)
         if not be_ok:
-            be_ok = health_check(8000)
+            be_ok = health_check(be_port)
         if not fe_ok:
-            fe_ok = health_check(5173)
-        status = f"[{attempt+1}/7] backend={'OK' if be_ok else '...'} frontend={'OK' if fe_ok else '...'}"
+            fe_ok = health_check(fe_port)
+        status = f"[{attempt+1}/7] backend={be_port}={'OK' if be_ok else '...'} frontend={fe_port}={'OK' if fe_ok else '...'}"
         log(status)
         if be_ok and fe_ok:
             break
@@ -122,13 +131,13 @@ def main() -> None:
     if be_ok and fe_ok:
         log("=" * 50)
         log("  All services ready!")
-        log("  Frontend: http://127.0.0.1:5173")
-        log("  Backend:  http://127.0.0.1:8000")
+        log(f"  Frontend: http://127.0.0.1:{fe_port}")
+        log(f"  Backend:  http://127.0.0.1:{be_port}")
         log("=" * 50)
         log("opening browser...")
         import webbrowser
         try:
-            webbrowser.open("http://127.0.0.1:5173")
+            webbrowser.open(f"http://127.0.0.1:{fe_port}")
         except Exception:
             log("could not open browser, please open manually")
     else:
@@ -160,7 +169,7 @@ def main() -> None:
                 be_fh = open(backend_log, "ab")
                 be_proc = subprocess.Popen(
                     [str(VENV_PY), "-m", "uvicorn", "app.main:app",
-                     "--host", "127.0.0.1", "--port", "8000"],
+                     "--host", "127.0.0.1", "--port", str(be_port)],
                     cwd=str(BACKEND_DIR),
                     stdout=be_fh,
                     stderr=subprocess.STDOUT,
@@ -186,6 +195,7 @@ def main() -> None:
                     cwd=str(FRONTEND_DIR),
                     stdout=fe_fh,
                     stderr=subprocess.STDOUT,
+                    env=fe_env,
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
                 )
                 log(f"frontend restarted (PID {fe_proc.pid})")
