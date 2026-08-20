@@ -1,10 +1,14 @@
 """FastAPI 入口：提供模式列表、开盲盒、配置读写接口。"""
 from __future__ import annotations
 
+import copy
 import json
+import logging
+import os
 import re
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +23,7 @@ from . import config
 from . import pipeline
 
 app = FastAPI(title="AI 盲盒", version="0.1.0")
+_logger = logging.getLogger("blindbox.api")
 
 # 简单的内存速率限制器
 _rate_limit_store: dict[str, list[float]] = {}
@@ -76,22 +81,125 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
             status_code=exc.status_code,
             content={"detail": exc.detail},
         )
-    # 兜底：记录异常信息，返回 500
-    detail = f"{type(exc).__name__}: {exc}"
+    # 兜底：完整堆栈只写服务端日志，响应里只给一个可对账的 trace_id。
+    # 直接回吐 f"{type(exc).__name__}: {exc}" 会把文件绝对路径、SQL、api_key 片段等
+    # 内部细节暴露给调用方，属信息泄露。
+    trace_id = uuid.uuid4().hex[:12]
+    _logger.exception(
+        "unhandled error trace_id=%s method=%s path=%s",
+        trace_id, request.method, request.url.path,
+    )
     return JSONResponse(
         status_code=500,
-        content={"detail": detail},
+        content={
+            "detail": "服务内部错误，请查看后端日志排查",
+            "trace_id": trace_id,
+        },
     )
 
+# CORS：本项目是本机运行的工具（uvicorn 绑 127.0.0.1），前端端口会在 5173-5192 / 8000-8019 间漂移，
+# 因此用 origin 正则放通本机任意端口，而不是 allow_origins=["*"]。
+# 通配符会让任意外部页面在用户浏览器里直接调用 /api/config 改写配置（配置里含 api_key），必须收紧。
+# 如需允许其它来源，通过环境变量 BLINDBOX_EXTRA_ORIGINS（逗号分隔）显式追加。
+_extra_origins = [
+    o.strip() for o in (os.environ.get("BLINDBOX_EXTRA_ORIGINS") or "").split(",") if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_extra_origins,
+    allow_origin_regex=r"^https?://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$",
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Admin-Token"],
 )
 
 SETTINGS_PATH = config.PROJECT_ROOT / "settings.yaml"
 _config_lock = threading.Lock()
+
+# 可选管理令牌：设置了 BLINDBOX_ADMIN_TOKEN 后，写配置类接口必须带 X-Admin-Token 头。
+# 不设置时保持默认行为（本机单用户场景免鉴权），避免破坏现有使用方式。
+_ADMIN_TOKEN = (os.environ.get("BLINDBOX_ADMIN_TOKEN") or "").strip()
+
+# settings.yaml 允许的顶层键；未知键一律拒绝，防止把整份配置写成任意结构后
+# 让 load_settings/pipeline 在运行期各处炸掉。
+_ALLOWED_TOP_KEYS = {
+    "global", "mock", "agents", "randomness", "modes", "providers", "paths",
+}
+
+
+def _require_admin(request: Request) -> None:
+    """写配置类接口的鉴权。未配置令牌时放行。"""
+    if not _ADMIN_TOKEN:
+        return
+    token = (request.headers.get("X-Admin-Token") or "").strip()
+    # 用 compare_digest 做定长比较，避免早退比较造成的时序侧信道
+    import hmac
+    if not token or not hmac.compare_digest(token, _ADMIN_TOKEN):
+        raise HTTPException(status_code=401, detail="缺少或无效的 X-Admin-Token")
+
+
+def _validate_config_payload(cfg: Any) -> dict[str, Any]:
+    """对前端提交的整份配置做结构校验，通过后返回该 dict。
+
+    只做「能挡住把配置写坏」的必要校验，不做业务级强约束，避免过度限制扩展。
+    """
+    if not isinstance(cfg, dict):
+        raise HTTPException(status_code=400, detail="config 必须是一个对象")
+    if not cfg:
+        raise HTTPException(status_code=400, detail="config 不能为空对象（会清空 settings.yaml）")
+    unknown = set(cfg) - _ALLOWED_TOP_KEYS
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"config 含未知顶层键: {sorted(unknown)}；允许的键: {sorted(_ALLOWED_TOP_KEYS)}",
+        )
+    # 关键 section 的类型必须正确，否则 Settings 的各 property 会在运行期返回怪值
+    for key, expect, tname in (
+        ("global", dict, "对象"), ("agents", dict, "对象"),
+        ("randomness", dict, "对象"), ("providers", dict, "对象"),
+        ("paths", dict, "对象"), ("modes", list, "数组"),
+    ):
+        if key in cfg and cfg[key] is not None and not isinstance(cfg[key], expect):
+            raise HTTPException(status_code=400, detail=f"config.{key} 必须是{tname}")
+    for i, m in enumerate(cfg.get("modes") or []):
+        if not isinstance(m, dict):
+            raise HTTPException(status_code=400, detail=f"config.modes[{i}] 必须是对象")
+        if not str(m.get("id") or "").strip():
+            raise HTTPException(status_code=400, detail=f"config.modes[{i}].id 不能为空")
+    ids = [str(m.get("id")) for m in (cfg.get("modes") or []) if isinstance(m, dict)]
+    dup = {i for i in ids if ids.count(i) > 1}
+    if dup:
+        raise HTTPException(status_code=400, detail=f"config.modes 存在重复 id: {sorted(dup)}")
+    return cfg
+
+
+def _write_settings_atomic(cfg: dict[str, Any]) -> None:
+    """原子写 settings.yaml 并热更新单例；任一步失败则回滚到写入前内容。
+
+    原实现是「直接覆盖写 → load_settings」，一旦新内容加载失败，
+    磁盘上已是坏配置，下次进程启动会直接 FileNotFound/AttributeError 起不来。
+    """
+    backup = SETTINGS_PATH.read_bytes() if SETTINGS_PATH.exists() else None
+    tmp = SETTINGS_PATH.with_suffix(".yaml.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+        os.replace(tmp, SETTINGS_PATH)  # 同盘 replace 是原子操作
+        config.set_settings(config.load_settings(SETTINGS_PATH))
+    except Exception as e:
+        # 回滚磁盘内容，内存单例保持原值（set_settings 未成功执行）
+        if backup is not None:
+            try:
+                SETTINGS_PATH.write_bytes(backup)
+            except Exception:
+                _logger.exception("settings.yaml 回滚失败，磁盘内容可能已损坏")
+        raise HTTPException(status_code=400, detail=f"配置保存失败，已回滚: {e}") from e
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except Exception:
+                pass
 
 
 class OpenRequest(BaseModel):
@@ -114,6 +222,11 @@ class GenerateSeedRequest(BaseModel):
     mode_id: str | None = None   # 指定模式时从该模式的独立池读取/写入
 
 
+class RefreshAllSeedsRequest(BaseModel):
+    # demo.html 存在「POST 不带 body」的调用，故整个 body 与该字段都可选
+    mode_id: str | None = None
+
+
 @app.get("/api/modes")
 def list_modes():
     return {"modes": config.get_settings().modes}
@@ -123,10 +236,16 @@ def list_modes():
 def list_history(mode: str | None = None, limit: int = 100):
     """列出 output/ 下所有归档记录，按修改时间倒序。
 
-    - 可选 ?mode=<id> 按模式过滤；?limit=<n> 限制条数（默认 100）。
+    - 可选 ?mode=<id> 按模式过滤；?limit=<n> 限制条数（默认 100，范围 1-1000）。
     - 读取异常的单条跳过，不影响整体。
-    - 返回 {items: [{id,mode,timestamp,seed,output_kind,concept,plan,output,local_file,json,tts_info,caption}], total}。
+    - 返回 {items: [...], total, returned}：total 为过滤后的总条数（不受 limit 影响），
+      returned 为本次实际返回条数，前端据此判断「还有更多」。
     """
+    # limit 未做边界限制时，?limit=0 会返回空列表、?limit=-1 会读全量，语义都不清晰
+    try:
+        limit = max(1, min(int(limit), 1000))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="limit 必须是整数")
     out_dir = config.get_settings().output_dir
     files = sorted(
         out_dir.glob("result_*.json"),
@@ -134,12 +253,16 @@ def list_history(mode: str | None = None, limit: int = 100):
         reverse=True,
     )
     items: list[dict[str, Any]] = []
+    total = 0  # 过滤后命中的总数，与 items 的截断长度解耦
     for p in files:
         try:
             rec = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             continue
         if mode and rec.get("mode") != mode:
+            continue
+        total += 1
+        if len(items) >= limit:
             continue
         items.append({
             "id": rec.get("id"),
@@ -159,9 +282,7 @@ def list_history(mode: str | None = None, limit: int = 100):
             "image_url": rec.get("image_url", ""),
             "env_warning": rec.get("env_warning", ""),
         })
-        if len(items) >= limit:
-            break
-    return {"items": items, "total": len(items)}
+    return {"items": items, "total": total, "returned": len(items)}
 
 
 @app.get("/api/config")
@@ -179,14 +300,55 @@ def _normalize_base_url(raw: str) -> str:
     u = (raw or "").strip()
     if not u:
         return ""
-    # 补全协议头
-    if not re.match(r"^https?://", u, re.I):
+    # 补全协议头：只在「完全没写协议」时补 https。
+    # 原实现用 `not re.match(r"^https?://")` 判断，会把 file:///x 变成 https://file:///x —
+    # 协议被悄悄改写，后续的协议白名单校验也就白做了。
+    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://", u):
         u = "https://" + u
     u = u.rstrip("/")
     # 用户可能直接填到了 /models 端点，回退到上一级
     if u.lower().endswith("/models"):
         u = u[: -len("/models")]
     return u
+
+
+# 云厂商实例元数据端点：一旦被当作 base_url，服务端会代为读取临时凭据，属典型 SSRF 目标
+_METADATA_HOSTS = {
+    "169.254.169.254", "metadata.google.internal", "metadata",
+    "100.100.200.200",           # 阿里云
+    "fd00:ec2::254",             # AWS IMDSv2 IPv6
+}
+
+
+def _assert_outbound_url_allowed(url: str) -> None:
+    """对「服务端将要代为请求」的用户输入 URL 做最小必要校验。
+
+    本服务只监听 127.0.0.1（见启动脚本 --host 127.0.0.1），因此不禁止 loopback 与
+    内网地址 —— 用户用 Ollama / LM Studio / vLLM 等本地推理服务是正常用法，
+    一刀切封 127.0.0.1 会直接砍掉主要场景。这里只挡真正无正当用途的部分：
+      1) 非 http/https 协议（file:// gopher:// 等）
+      2) URL 内嵌凭据（user:pass@host，易被用来做凭据注入/日志泄露）
+      3) 云实例元数据服务地址
+    """
+    import ipaddress
+    import urllib.parse
+
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise HTTPException(status_code=400, detail=f"base_url 协议不支持: {parsed.scheme or '(空)'}")
+    if parsed.username or parsed.password:
+        raise HTTPException(status_code=400, detail="base_url 不允许内嵌用户名/密码，请用 api_key 字段")
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        raise HTTPException(status_code=400, detail="base_url 缺少主机名")
+    if host in _METADATA_HOSTS:
+        raise HTTPException(status_code=400, detail="base_url 指向云实例元数据服务，已拒绝")
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_link_local:  # 169.254.0.0/16 / fe80::/10，元数据服务常驻网段
+            raise HTTPException(status_code=400, detail="base_url 指向链路本地地址，已拒绝")
+    except ValueError:
+        pass  # 是域名而非 IP，交由 DNS 处理
 
 
 @app.post("/api/models")
@@ -203,6 +365,7 @@ def list_models(req: ModelsRequest):
         raise HTTPException(status_code=400, detail="api_key 不能为空")
 
     base_url = _normalize_base_url(original)
+    _assert_outbound_url_allowed(base_url)
 
     last_err = ""
 
@@ -262,16 +425,17 @@ def list_models(req: ModelsRequest):
 
 
 @app.post("/api/config")
-def save_config(req: SaveConfigRequest):
-    """Save configuration to settings.yaml and hot-reload in-memory.
+def save_config(req: SaveConfigRequest, request: Request):
+    """保存配置到 settings.yaml 并热更新内存单例。
 
-    Uses a lock to ensure read/write consistency: concurrent requests
-    won't see half-updated state.
+    - 需要通过 _require_admin（配置了 BLINDBOX_ADMIN_TOKEN 时生效）
+    - 提交内容先做结构校验，再原子写盘，失败自动回滚
+    - 全程持锁，保证并发请求不会看到半更新状态
     """
+    _require_admin(request)
+    cfg = _validate_config_payload(req.config)
     with _config_lock:
-        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
-            yaml.safe_dump(req.config, f, allow_unicode=True, sort_keys=False)
-        config.set_settings(config.load_settings(SETTINGS_PATH))
+        _write_settings_atomic(cfg)
     return {"ok": True}
 
 
@@ -299,13 +463,19 @@ def generate_seed(req: GenerateSeedRequest):
 
 
 @app.post("/api/seed/refresh-all")
-def refresh_all_seeds(request: Request):
+def refresh_all_seeds(request: Request, req: RefreshAllSeedsRequest | None = None):
     """一键刷新全部种子池——每维度调用 generate_pool_seed 逐个生成新种子。
 
     保持各维度种子数量不变，将所有旧种子替换为独立随机生成的新种子。
     body 可带 mode_id：指定模式时刷新该模式的独立池（若已配置），否则刷新全局池。
     返回 {pool: {dim: [seed, ...]}}，前端可直接 setConfig 使用。
+
+    注意：mode_id 必须通过 Pydantic body model 取。原实现在同步函数里写
+    `body = request.json()`（未 await，返回的是协程），`.get` 必然抛
+    AttributeError 并被 except 吞掉，导致 mode_id 恒为 None ——
+    前端「刷新 code 模式独立池」实际一直在改全局池。
     """
+    _require_admin(request)
     # 速率限制：防止恶意调用消耗API配额
     client_ip = request.client.host if request.client and request.client.host else "unknown"
     if not _check_rate_limit(client_ip):
@@ -314,38 +484,31 @@ def refresh_all_seeds(request: Request):
             detail=f"请求过于频繁，请在 {_RATE_LIMIT_WINDOW} 秒后再试"
         )
 
-    mode_id: str | None = None
-    try:
-        body = request.json()
-        mode_id = (body or {}).get("mode_id") or None
-    except Exception:
-        mode_id = None
+    mode_id = (req.mode_id or "").strip() if req else None
 
     # 同步写入 settings.yaml —— 单次持锁，覆盖「读 raw → 生成 → 写盘 → 重载 → 热更新单例」全过程。
     # 将 pool 生成移入锁内，避免并发请求生成相同 pool 后竞争写入
     with _config_lock:
-        raw = config.get_settings().raw
-        try:
-            new_pool = pipeline.refresh_all_seeds(mode_id)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        # 深拷贝后再改：原实现直接改 get_settings().raw，写盘失败时内存单例已被污染
+        raw = copy.deepcopy(config.get_settings().raw)
+        if mode_id and not any(
+            isinstance(m, dict) and m.get("id") == mode_id for m in raw.get("modes", [])
+        ):
+            # 先校验模式存在，避免白跑一轮 LLM 生成后才发现 404、浪费配额
+            raise HTTPException(status_code=404, detail=f"模式 {mode_id} 不存在")
+
+        new_pool = pipeline.refresh_all_seeds(mode_id)
 
         if mode_id:
-            mode_found = False
             for m in raw.get("modes", []):
-                if m.get("id") == mode_id:
+                if isinstance(m, dict) and m.get("id") == mode_id:
                     m["pool"] = new_pool
-                    mode_found = True
                     break
-            if not mode_found:
-                raise HTTPException(status_code=404, detail=f"模式 {mode_id} 不存在")
         else:
-            if "randomness" not in raw:
+            if not isinstance(raw.get("randomness"), dict):
                 raw["randomness"] = {}
             raw["randomness"]["pool"] = new_pool
-        with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
-            yaml.safe_dump(raw, f, allow_unicode=True, sort_keys=False)
-        config.set_settings(config.load_settings(SETTINGS_PATH))
+        _write_settings_atomic(raw)
     return {"pool": new_pool}
 
 
@@ -418,6 +581,8 @@ def list_tts_voices(base_url: str = "", api_key: str = ""):
 
     cloud_voices: list[dict] = []
     if base_url and api_key:
+        # 与 /api/models 同样的出站 URL 校验：这里也会由服务端代为请求用户给的地址
+        _assert_outbound_url_allowed(_normalize_base_url(base_url))
         # Attempt to fetch voices from the configured TTS provider
         import urllib.request, json as jmod
         candidates = [
@@ -471,10 +636,18 @@ def serve_output(path: str):
     import urllib.parse
     try:
         settings = config.get_settings()
-        target = (settings.output_dir / urllib.parse.unquote(path)).resolve()
-        target.relative_to(settings.output_dir)  # Raises ValueError if outside
+        # 基准目录也必须 resolve：output_dir 若含 .. 或本身是符号链接/junction，
+        # 只 resolve target 一侧会让 relative_to 误判（拿未规范化的路径去比规范化的路径）。
+        base = settings.output_dir.resolve()
+        rel = urllib.parse.unquote(path)
+        # 绝对路径 / 带盘符的输入会让 `base / rel` 直接跳出 base，先挡掉
+        if not rel or Path(rel).is_absolute() or Path(rel).drive or rel.startswith(("/", "\\")):
+            raise HTTPException(status_code=404, detail="文件不存在")
+        target = (base / rel).resolve()
+        target.relative_to(base)  # 落在 base 之外时抛 ValueError
     except ValueError:
         raise HTTPException(status_code=404, detail="文件不存在")
-    if target.exists():
-        return FileResponse(str(target))
-    raise HTTPException(status_code=404, detail="文件不存在")
+    # 必须是普通文件：目录会让 FileResponse 抛 500；这里统一按 404 处理
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(str(target))

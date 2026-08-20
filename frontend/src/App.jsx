@@ -3,6 +3,7 @@ import ModeSelector from "./components/ModeSelector.jsx";
 import ResultPanel from "./components/ResultPanel.jsx";
 import ConfigPanel from "./components/ConfigPanel.jsx";
 import HistoryPanel from "./components/HistoryPanel.jsx";
+import { fetchJson, postJson } from "./lib/http.js";
 
 export default function App() {
   const [tab, setTab] = useState("box"); // box | history | config
@@ -19,11 +20,10 @@ export default function App() {
   const [expandedId, setExpandedId] = useState(null);
 
   useEffect(() => {
-    fetch("/api/modes")
-      .then((r) => r.json())
+    fetchJson("/api/modes")
       .then((d) => {
-        setModes(d.modes || []);
-        if (d.modes && d.modes.length) setSelected(d.modes[0].id);
+        setModes(d?.modes || []);
+        if (d?.modes?.length) setSelected(d.modes[0].id);
       })
       .catch((e) => setError("加载模式失败: " + e.message));
   }, []);
@@ -34,13 +34,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch("/api/open", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(seed ? { mode: m, seed } : { mode: m }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "开盲盒失败");
+      const data = await postJson("/api/open", seed ? { mode: m, seed } : { mode: m });
       setResult(data);
     } catch (e) {
       setError("开盲盒失败: " + e.message);
@@ -57,10 +51,8 @@ export default function App() {
     setHistLoading(true);
     setHistError(null);
     try {
-      const resp = await fetch("/api/history?limit=100");
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "加载历史失败");
-      setHistory(data.items || []);
+      const data = await fetchJson("/api/history?limit=100");
+      setHistory(data?.items || []);
     } catch (e) {
       setHistError("加载历史失败: " + e.message);
     } finally {

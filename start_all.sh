@@ -42,6 +42,7 @@ PY
 }
 
 # 动态分配端口：从 base 开始找第一个空闲端口（占用则 +1，最多 20 个）
+# 仅用于「启动新实例」；stop/status/restart 必须用 find_running_port 找在用端口。
 assign_port() {
   "$VENV_PY" - "$1" <<'PY' 2>/dev/null
 import socket, sys
@@ -59,16 +60,74 @@ else:
 PY
 }
 
-BPORT=$(assign_port 8000)
-FPORT=$(assign_port 5173)
-if [ "$BPORT" != "8000" ]; then echo "  [port] 8000 被占用，后端使用 $BPORT"; fi
-if [ "$FPORT" != "5173" ]; then echo "  [port] 5173 被占用，前端使用 $FPORT"; fi
+# 探测「已在运行」的端口：列出 [base, base+20) 内所有正在监听的端口（空格分隔）。
+# stop/status/restart 用它，避免误操作到一个空闲端口上（否则停不掉、状态永远显示未运行）。
+# 返回全部而非第一个，因为历史上可能因端口漂移残留多个实例，stop 需要一次清干净。
+find_running_ports() {
+  "$VENV_PY" - "$1" <<'PY' 2>/dev/null
+import socket, sys
+base = int(sys.argv[1])
+found = []
+for p in range(base, base + 20):
+    s = socket.socket(); s.settimeout(0.2)
+    try:
+        s.connect(("127.0.0.1", p)); found.append(p)
+    except Exception:
+        pass
+    finally:
+        s.close()
+print(" ".join(str(p) for p in found))
+PY
+}
+
+# 端口变量按子命令区分求值：start/watch 需要空闲端口，stop/status/restart 需要在用端口。
+resolve_ports_for_start() {
+  BPORT=$(assign_port 8000)
+  FPORT=$(assign_port 5173)
+  if [ "$BPORT" != "8000" ]; then echo "  [port] 8000 被占用，后端使用 $BPORT"; fi
+  if [ "$FPORT" != "5173" ]; then echo "  [port] 5173 被占用，前端使用 $FPORT"; fi
+}
+
+# BPORTS / FPORTS 为在用端口列表（可能为空字符串）；BPORT / FPORT 取第一个用于展示。
+resolve_ports_for_manage() {
+  BPORTS=$(find_running_ports 8000)
+  FPORTS=$(find_running_ports 5173)
+  BPORT=${BPORTS%% *}; BPORT=${BPORT:-8000}
+  FPORT=${FPORTS%% *}; FPORT=${FPORT:-5173}
+}
 
 # 按端口精确杀死占用进程（Windows 用 netstat.exe 解析 PID，兼容 Git Bash）
+# 强杀前先校验该进程命令行属于本项目，避免误杀恰好占用 8000/5173 的其它应用。
 kill_port() {
-  "$VENV_PY" - "$1" <<'PY' 2>/dev/null
-import subprocess, re, sys
+  "$VENV_PY" - "$1" "$ROOT" <<'PY' 2>/dev/null
+import subprocess, re, sys, os
 port = int(sys.argv[1])
+root = sys.argv[2] if len(sys.argv) > 2 else ""
+# 项目归属标记：目录名 + 关键脚本名（Git Bash 的 /d/... 与 Windows 的 D:\... 都能命中目录名）
+markers = [m for m in (os.path.basename(root.rstrip("/\\")), "app.main:app", "serve.py") if m]
+
+
+def _cmdline(pid: int) -> str:
+    """取进程命令行；wmic 优先，Win11 24H2+ 回退 PowerShell。取不到返回空串。"""
+    try:
+        raw = subprocess.run(
+            ["wmic", "process", "where", "processid=%d" % pid, "get", "commandline"],
+            capture_output=True, timeout=10).stdout
+        txt = raw.decode("gbk", errors="ignore").strip()
+        if txt and "CommandLine" in txt:
+            return txt
+    except Exception:
+        pass
+    try:
+        ps = ("Get-CimInstance Win32_Process -Filter \"ProcessId=%d\""
+              " | Select-Object -ExpandProperty CommandLine" % pid)
+        raw = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                             capture_output=True, timeout=10).stdout
+        return raw.decode("gbk", errors="ignore").strip()
+    except Exception:
+        return ""
+
+
 try:
     raw = subprocess.run(["netstat.exe", "-ano"], capture_output=True, timeout=10).stdout
 except Exception:
@@ -78,24 +137,34 @@ except Exception:
         print("  (netstat 不可用，跳过端口清理:", e, ")"); sys.exit(0)
 # Windows 中文版 netstat 输出为 GBK，避免 UTF-8 解码报错
 out = raw.decode("gbk", errors="ignore")
-killed = []
+killed, skipped = [], []
+seen = set()
 for line in out.splitlines():
     if (":%d " % port) in line and "LISTENING" in line:
         m = re.search(r"(\d+)\s*$", line.strip())
-        if m:
-            pid = int(m.group(1))
-            if pid == 0:
-                continue
-            try:
-                # Windows 用 taskkill 强杀（signal.SIGKILL 在 Windows 不存在）
-                subprocess.run(["taskkill.exe", "/F", "/PID", str(pid)],
-                               capture_output=True, timeout=10)
-                killed.append(pid)
-            except Exception as e:
-                print("  杀 PID", pid, "失败:", e)
+        if not m:
+            continue
+        pid = int(m.group(1))
+        if pid == 0 or pid in seen:
+            continue
+        seen.add(pid)
+        cl = _cmdline(pid)
+        # 命令行可读且不含本项目标记 -> 视为他人进程，跳过（不强杀）
+        if cl and not any(mk and mk in cl for mk in markers):
+            skipped.append(pid)
+            continue
+        try:
+            # Windows 用 taskkill 强杀（signal.SIGKILL 在 Windows 不存在）
+            subprocess.run(["taskkill.exe", "/F", "/PID", str(pid)],
+                           capture_output=True, timeout=10)
+            killed.append(pid)
+        except Exception as e:
+            print("  杀 PID", pid, "失败:", e)
 if killed:
-    print("  已终止占用端口", port, "的进程:", sorted(set(killed)))
-else:
+    print("  已终止占用端口", port, "的本项目进程:", sorted(set(killed)))
+if skipped:
+    print("  跳过端口", port, "上非本项目的进程:", sorted(set(skipped)), "(如确需释放请手动处理)")
+if not killed and not skipped:
     print("  未发现占用端口", port, "的进程")
 PY
 }
@@ -133,6 +202,28 @@ stop_service() {
 }
 
 cmd=${1:-start}
+BPORTS=""; FPORTS=""
+case "$cmd" in
+  start|watch)
+    resolve_ports_for_start ;;
+  stop|status|restart)
+    # 管理类子命令必须作用在「在用端口」上；restart 停完后会再次按空闲端口分配
+    resolve_ports_for_manage ;;
+  *)
+    BPORT=8000; FPORT=5173 ;;
+esac
+
+# 停掉一组在用端口上的服务；端口列表为空时明确提示，而不是去操作一个空闲端口
+stop_all() {
+  local any=no p
+  for p in $FPORTS; do stop_service frontend "$p" "$FPID"; any=yes; done
+  for p in $BPORTS; do stop_service backend  "$p" "$BPID"; any=yes; done
+  if [ "$any" = "no" ]; then
+    echo "未发现运行中的服务（8000-8019 / 5173-5192 均无监听）。"
+    rm -f "$FPID" "$BPID" 2>/dev/null || true
+  fi
+}
+
 case "$cmd" in
   start)
     start_backend
@@ -155,22 +246,25 @@ case "$cmd" in
     done
     ;;
   stop)
-    stop_service frontend "$FPORT" "$FPID"
-    stop_service backend  "$BPORT" "$BPID"
+    stop_all
     echo "已停止服务。"
     ;;
   restart)
-    stop_service frontend "$FPORT" "$FPID"
-    stop_service backend  "$BPORT" "$BPID"
+    stop_all
     sleep 1
+    # 停完后端口已释放，重新按空闲端口分配，避免沿用刚被 kill 的端口时 TIME_WAIT 抢不到
+    resolve_ports_for_start
     start_backend
     start_frontend
     echo "------------------------------------------------------------"
-    echo "  前端: http://127.0.0.1:$FPORT"
+    echo "  前端: http://127.0.0.1:$FPORT   (后端: http://127.0.0.1:$BPORT)"
     ;;
   status)
-    echo "[backend]  port $BPORT: $(port_listening $BPORT)   pid: $(cat "$BPID" 2>/dev/null || echo -)"
-    echo "[frontend] port $FPORT: $(port_listening $FPORT)   pid: $(cat "$FPID" 2>/dev/null || echo -)"
+    echo "[backend]  在用端口: ${BPORTS:-无}   pid 文件: $(cat "$BPID" 2>/dev/null || echo -)"
+    echo "[frontend] 在用端口: ${FPORTS:-无}   pid 文件: $(cat "$FPID" 2>/dev/null || echo -)"
+    if [ -n "$FPORTS" ]; then
+      for p in $FPORTS; do echo "  前端入口: http://127.0.0.1:$p"; done
+    fi
     ;;
   *)
     echo "用法: $0 {start|watch|stop|restart|status}"; exit 1 ;;

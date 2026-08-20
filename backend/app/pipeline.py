@@ -369,6 +369,7 @@ def generate_pool_seed(dim: str, existing: list[str] | None = None, mode_id: str
 
     def call(creds: dict) -> str:
         client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=90, max_retries=0)
+        last_err: Exception | None = None
         for _attempt in range(3):
             try:
                 resp = client.chat.completions.create(
@@ -379,15 +380,28 @@ def generate_pool_seed(dim: str, existing: list[str] | None = None, mode_id: str
                         {"role": "user", "content": user},
                     ],
                 )
-                text = _clean_seed_text(resp.choices[0].message.content or "")
+                text = _clean_seed_text(_first_choice_text(resp, "种子生成", creds["model"]))
                 if not text:
+                    _log.warning("[seed 生成] model=%s 第 %d 次返回空内容，重试",
+                                 creds["model"], _attempt + 1)
                     continue
                 if _seems_anchored(text, existing):
+                    _log.warning("[seed 生成] model=%s 第 %d 次输出锚定已有种子(%r)，重试",
+                                 creds["model"], _attempt + 1, text[:30])
                     continue
                 return text
-            except Exception:
+            except Exception as e:
+                # 原实现是裸 `except Exception: continue`，鉴权失败/额度耗尽/模型名错
+                # 这类不可能自愈的错误会被静默重试 3 次后统一报「返回空内容」，
+                # 真实原因完全丢失。这里至少留下可排查的日志。
+                last_err = e
+                _log.warning("[seed 生成] model=%s 第 %d 次调用异常 %s: %s",
+                             creds["model"], _attempt + 1, type(e).__name__, e)
                 continue
-        raise RuntimeError(f"[seed 生成] model={creds['model']} 多次返回空内容或锚定，触发 fallback")
+        raise RuntimeError(
+            f"[seed 生成] model={creds['model']} 3 次尝试均失败"
+            f"{f'，最后一次错误 {type(last_err).__name__}: {last_err}' if last_err else '（返回空内容或锚定已有种子）'}"
+        )
 
     out, _used = _call_with_fallback(models, call, ctx=f"generate_pool_seed:{dim}")
     return out
@@ -458,6 +472,7 @@ def refresh_all_seeds(mode_id: str | None = None) -> dict[str, list[str]]:
                 seed = seed.strip()
                 # 对 theme/style 维度进行长度限制（Python字符串是Unicode，按字符截断是安全的）
                 if dim in ("theme", "style") and len(seed) > 12:
+                    # 使用 Unicode 字符截断，避免多字节字符被截断导致编码问题
                     seed = seed[:12]
                 if seed:
                     return dim, task_i, seed
@@ -511,7 +526,7 @@ def _generate_with_model(dim: str, existing: list[str], creds: dict, tool: bool 
                     {"role": "user", "content": user},
                 ],
             )
-            text = _clean_seed_text(resp.choices[0].message.content or "")
+            text = _clean_seed_text(_first_choice_text(resp, "种子池刷新", creds["model"]))
             if not text:
                 continue
             # constraint/twist 是描述性短语，2 字滑窗锚定检查过于激进（中文 80 出现"必须""一个"就误判），
@@ -570,7 +585,7 @@ def _agent_call(agent_key: str, system: str, user: str, mode: dict | None = None
                 {"role": "user", "content": user},
             ],
         )
-        return (resp.choices[0].message.content or "").strip()
+        return _first_choice_text(resp, f"agent:{agent_key}", creds["model"]).strip()
 
     out, _used = _call_with_fallback(models, call, ctx=f"agent:{agent_key}")
     return out
@@ -916,6 +931,46 @@ def _safe_relpath(path: str, base: "Path") -> str | None:
         return None
 
 
+def _first_image_item(resp: Any, ctx: str, model: str = "") -> Any:
+    """取图像接口返回的第一个 item，空结果时抛出可读错误。
+
+    直接写 `resp.data[0]` 在供应商返回 `{"data": []}`（触发内容审核、配额耗尽、
+    参数被拒时很常见）或 data 为 null 时会抛 IndexError / TypeError，
+    冒泡后只剩一句 "list index out of range"，完全看不出是哪个模型、哪一步失败。
+    """
+    data = getattr(resp, "data", None)
+    if not data:
+        # 有的供应商把拒绝原因放在这些字段里，尽量带出来便于定位
+        hint = ""
+        for attr in ("error", "message", "msg", "detail"):
+            val = getattr(resp, attr, None)
+            if val:
+                hint = f"，供应商附加信息: {val}"
+                break
+        raise RuntimeError(
+            f"[{ctx}] model={model or '?'} 返回了空的图片列表（data 为空）"
+            f"，常见原因：提示词被内容审核拒绝 / 配额耗尽 / 模型不支持该参数{hint}"
+        )
+    return data[0]
+
+
+def _first_choice_text(resp: Any, ctx: str, model: str = "") -> str:
+    """取 chat 接口第一个 choice 的文本，空结果时抛出可读错误。
+
+    `resp.choices[0]` 在供应商因内容审核返回空 choices 时会抛 IndexError；
+    统一在这里给出带上下文的错误信息。
+    """
+    choices = getattr(resp, "choices", None)
+    if not choices:
+        finish = getattr(resp, "error", None) or getattr(resp, "message", None) or ""
+        raise RuntimeError(
+            f"[{ctx}] model={model or '?'} 返回了空的 choices"
+            f"，常见原因：内容审核拦截 / 配额耗尽{('，供应商信息: ' + str(finish)) if finish else ''}"
+        )
+    msg = getattr(choices[0], "message", None)
+    return (getattr(msg, "content", None) or "") if msg is not None else ""
+
+
 def _slugify(text: str, max_len: int = 40) -> str:
     """从提示词/文本中提取一个文件系统友好的短文件名（保留中英文，去除非法字符）。
 
@@ -1086,7 +1141,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                         {"role": "user", "content": local_prompt},
                     ],
                 )
-                content = (resp.choices[0].message.content or "").strip()
+                content = _first_choice_text(resp, "小说执行 Agent", creds["model"]).strip()
                 # 校验：若模型误将大纲原封不动抄回或仍以「输出大纲」开头，自动提示并纠正重试
                 if content == plan.strip() or content.startswith("输出大纲") or content.startswith("**输出大纲**"):
                     if attempt == 0:
@@ -1142,7 +1197,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                         {"role": "user", "content": user_prompt},
                     ],
                 )
-                return (resp.choices[0].message.content or "").strip()
+                return _first_choice_text(resp, "角色卡文本", creds["model"]).strip()
 
             try:
                 char_text, txt_used = _call_with_fallback(
@@ -1186,7 +1241,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                         size=mode.get("size", "1024x1024"),
                         n=1,
                     )
-                    item = resp.data[0]
+                    item = _first_image_item(resp, "角色卡图片生成", creds["model"])
                     if getattr(item, "url", None):
                         return item.url
                     if getattr(item, "b64_json", None):
@@ -1252,7 +1307,7 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
                         n=1,
                     )
                     # 兼容 url / b64_json 两种返回
-                    item = resp.data[0]
+                    item = _first_image_item(resp, "图片执行 Agent", creds["model"])
                     if getattr(item, "url", None):
                         return item.url
                     if getattr(item, "b64_json", None):
@@ -1344,7 +1399,10 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
             if not vid:
                 raise RuntimeError(f"创建视频任务未返回 id：{str(cdata)[:200]}")
             # 轮询结果（最多约 5 分钟；前端代理层已放宽到 10 分钟，避免长连接被掐断导致 "Failed to fetch"）
-            poll_url = f"{root}/agnesapi?video_id={vid}"
+            # vid 来自上游响应，必须 URL 编码后再拼进 query：
+            # 若其中含 & # ? 等字符，直接拼接会截断/污染查询串，导致轮询永远拿不到结果。
+            from urllib.parse import quote as _urlquote
+            poll_url = f"{root}/agnesapi?video_id={_urlquote(str(vid), safe='-_.~')}"
             for _ in range(60):
                 _time_mod.sleep(5)
                 with httpx.Client(timeout=30) as hc:
@@ -1752,7 +1810,7 @@ def _make_simple_call(models: list[dict], sys_prompt: str, usr_prompt: str):
                         {"role": "user", "content": usr_prompt},
                     ],
                 )
-                content = (resp.choices[0].message.content or "").strip()
+                content = _first_choice_text(resp, "文本执行 Agent", creds["model"]).strip()
                 if content:
                     return content
                 if attempt == 0:
@@ -1887,7 +1945,7 @@ def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
                         {"role": "user", "content": local_user_prompt},
                     ],
                 )
-                content = (resp.choices[0].message.content or "").strip()
+                content = _first_choice_text(resp, "游戏执行 Agent", creds["model"]).strip()
                 # 诊断日志：记录每个模型的原始输出（前 300 字 + 最后一行的截断标记）
                 tail = content[-120:] if len(content) > 120 else content
                 has_html_start = bool(re.search(r'<!DOCTYPE|<html|<canvas|<script', content, flags=re.I))
@@ -2000,7 +2058,7 @@ def _run_quiz_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
                         {"role": "user", "content": user_prompt},
                     ],
                 )
-                content = (resp.choices[0].message.content or "").strip()
+                content = _first_choice_text(resp, "代码执行 Agent", creds["model"]).strip()
                 html = _extract_html(content)
                 if html and "<script" in html.lower():
                     return _save(html)
@@ -2269,7 +2327,20 @@ def _run_tts(plan: str, mode: dict[str, Any], result: "BlindBoxResult | None" = 
             async def _synth():
                 comm = edge_tts.Communicate(text, voice_name)
                 await comm.save(str(dest))
-            asyncio.run(_synth())
+
+            # asyncio.run 在「已有运行中的事件循环」里会直接抛
+            # RuntimeError: asyncio.run() cannot be called from a running event loop。
+            # 当前调用链是同步路由（FastAPI 放到线程池执行，线程内无 loop）所以能跑通，
+            # 但一旦有人把 /api/open 改成 async def，这里就会炸。做兼容处理：
+            # 检测到已有 loop 时，把协程丢到独立线程的新 loop 里跑并等待结果。
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                asyncio.run(_synth())          # 无运行中的 loop，正常路径
+            else:
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    ex.submit(lambda: asyncio.run(_synth())).result()
         except Exception:
             # 清理可能产生的空文件，避免留下垃圾
             if dest.exists() and dest.stat().st_size == 0:
@@ -2631,7 +2702,7 @@ def _run_illustrated_story(
                     resp = client.images.generate(
                         model=creds["model"], prompt=prompt, size="1024x1024", n=1,
                     )
-                    item = resp.data[0]
+                    item = _first_image_item(resp, "插画故事 单页", creds["model"])
                     if getattr(item, "url", None):
                         return item.url
                     if getattr(item, "b64_json", None):
@@ -2755,7 +2826,7 @@ def _run_video_storyboard(
                     resp = client.images.generate(
                         model=creds["model"], prompt=prompt, size="1792x1024", n=1,
                     )
-                    item = resp.data[0]
+                    item = _first_image_item(resp, "视频分镜 单镜", creds["model"])
                     if getattr(item, "url", None):
                         return item.url
                     if getattr(item, "b64_json", None):

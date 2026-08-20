@@ -190,16 +190,28 @@
       const LEGACY_MODE_NAMES = { novella: "中篇播客（已合并）", longpod: "长播客（已合并）" };
       const modeName = (id) => (modes.find(m => m.id === id)?.name || LEGACY_MODE_NAMES[id] || id || "");
 
+      // 把 output 目录内的相对文件名转成可安全放进 href/src 的 URL。
+      // 逐段 encodeURIComponent：产物名由提示词生成（中文/空格/#/%/&），
+      // 直接 "/output/" + name 会被浏览器把 # 之后当锚点丢掉（output/ 里确有含 # 的文件）。
+      const outUrl = (name) => {
+        if (typeof name !== "string") return null;
+        const raw = name.trim().replace(/\\/g, "/");
+        if (!raw) return null;
+        if (raw.startsWith("/") || /^[a-zA-Z]:\//.test(raw) || raw.split("/").includes("..")) return null;
+        return "/output/" + raw.split("/").map(encodeURIComponent).join("/");
+      };
+
       // 解析图片/视频成品的可渲染地址：
       // 归档后后端会把 output 改写为本地相对文件名（如 asset_xxx.png，无 /output/ 前缀），
       // 此时必须读取 archived.local_file 并补 /output/ 前缀；否则就当纯文本显示。
       const mediaSrc = (r) => {
         if (!r) return null;
-        if (r.archived && r.archived.local_file) return "/output/" + r.archived.local_file;
+        if (r.archived && r.archived.local_file) return outUrl(r.archived.local_file);
         const o = r.output || "";
-        if (/^https?:\/\//.test(o) || o.startsWith("/output/")) return o;
+        if (/^https?:\/\//.test(o)) return o;
+        if (o.startsWith("/output/")) return outUrl(o.slice("/output/".length)) || o;
         // 裸相对文件名（output 目录内）——自动补 /output/ 也能渲染
-        if (o && !/^[a-zA-Z]:[\\/]/.test(o) && !o.startsWith("/")) return "/output/" + o;
+        if (o && !/^[a-zA-Z]:[\\/]/.test(o) && !o.startsWith("/")) return outUrl(o);
         return null; // 无法渲染 -> 退回纯文本
       };
       // 角色卡：解析 "Name | xxx" 或 "Name: xxx" 格式的结构化文本 → [{label, value}]
@@ -268,10 +280,23 @@
 
       const update = (path, value) => {
         setConfig(prev => {
+          // prev 为 null（配置还没加载完用户就操作）时直接跳过，避免 JSON.stringify(null) -> "null"
+          if (!prev || typeof prev !== "object") return prev;
           const next = JSON.parse(JSON.stringify(prev));
-          let node = next; const keys = path.split(".");
-          for (let i = 0; i < keys.length - 1; i++) node = node[keys[i]];
-          node[keys[keys.length - 1]] = value; return next;
+          const keys = path.split(".");
+          let node = next;
+          for (let i = 0; i < keys.length - 1; i++) {
+            const k = keys[i];
+            // 中间层缺失或不是对象时按需创建：原实现直接 node = node[k]，
+            // 一旦某层不存在，下一轮就是 undefined[k] -> TypeError，整个面板白屏。
+            // 下一段 key 是纯数字则建数组，否则建对象。
+            if (node[k] === null || typeof node[k] !== "object") {
+              node[k] = /^\d+$/.test(keys[i + 1]) ? [] : {};
+            }
+            node = node[k];
+          }
+          node[keys[keys.length - 1]] = value;
+          return next;
         });
         setSaved(false);
       };
@@ -676,8 +701,9 @@
                   } catch (e) { console.error("[demo] song parse:", e); }
                   const audioSrc = (() => {
                     if (!audio) return null;
-                    if (audio.startsWith("http") || audio.startsWith("/output/")) return audio;
-                    if (!/^[a-zA-Z]:[/\\]/.test(audio) && !audio.startsWith("/")) return "/output/" + audio;
+                    if (/^https?:\/\//i.test(audio)) return audio;
+                    if (audio.startsWith("/output/")) return outUrl(audio.slice("/output/".length)) || audio;
+                    if (audio && !/^[a-zA-Z]:[\\/]/.test(audio) && !audio.startsWith("/")) return outUrl(audio);
                     return null;
                   })();
                   return html`
@@ -700,9 +726,11 @@
                     <div style=${{display:"flex",gap:10,overflowX:"auto",padding:"8px 0",marginTop:8,scrollSnapType:"x mandatory"}}>
                       ${pages.map((p, i) => {
                         const src = (() => {
-                          if (p.local) return "/output/" + p.local;
-                          if (p.url && (p.url.startsWith("http") || p.url.startsWith("/output/"))) return p.url;
-                          if (p.url && !/^[a-zA-Z]:[/\\]/.test(p.url) && !p.url.startsWith("/")) return "/output/" + p.url;
+                          if (p.local) return outUrl(p.local);
+                          const u = p.url || "";
+                          if (/^https?:\/\//i.test(u)) return u;
+                          if (u.startsWith("/output/")) return outUrl(u.slice("/output/".length)) || u;
+                          if (u && !/^[a-zA-Z]:[\\/]/.test(u) && !u.startsWith("/")) return outUrl(u);
                           return null;
                         })();
                         return html`
@@ -721,17 +749,17 @@
                     <span class="archive-badge">✓ 已自动归档</span>
                     <span class="archive-time">${result.archived.timestamp}</span>
                     <div class="archive-links">
-                      <a href=${"/output/" + result.archived.json} target="_blank" rel="noreferrer">归档记录 (JSON)</a>
+                      <a href=${outUrl(result.archived.json) || ""} target="_blank" rel="noreferrer">归档记录 (JSON)</a>
                       ${result.archived.local_file
-                        ? html`<a href=${"/output/" + result.archived.local_file} target="_blank" rel="noreferrer">${result.archived.local_file.endsWith(".md") ? "文字成品" : "图片成品"}</a>`
+                        ? html`<a href=${outUrl(result.archived.local_file) || ""} target="_blank" rel="noreferrer">${result.archived.local_file.endsWith(".md") ? "文字成品" : "图片成品"}</a>`
                         : result.output_kind === "image_url" || result.output_kind === "video_file" || result.output_kind === "image_strip"
                           ? html`<span class="archive-note">（远程成品未下载到本地，可手动保存）</span>`
                           : null}
                       ${result.archived.text_file && result.archived.text_file !== result.archived.local_file
-                        ? html`<a href=${"/output/" + result.archived.text_file} target="_blank" rel="noreferrer">文字成品</a>`
+                        ? html`<a href=${outUrl(result.archived.text_file) || ""} target="_blank" rel="noreferrer">文字成品</a>`
                         : null}
                       ${result.image_url && /\.(png|jpe?g|gif|webp)$/i.test(result.image_url)
-                        ? html`<a href=${"/output/" + result.image_url} target="_blank" rel="noreferrer">图片成品</a>`
+                        ? html`<a href=${outUrl(result.image_url) || ""} target="_blank" rel="noreferrer">图片成品</a>`
                         : null}
                     </div>
                   </div>`}
@@ -890,7 +918,7 @@
                      ${it.output_kind === "spec_md" && html`<div class="plan"><code>${it.output || ""}</code></div>${envCostCard(it)}`}
                       ${(it.output_kind === "game_html" || it.output_kind === "quiz_html") && html`
                         ${it.local_file
-                          ? html`<iframe src=${"/output/" + it.local_file} sandbox="allow-scripts" data-blindbox=${it.output_kind === "quiz_html" ? "quiz" : "game"} title=${it.output_kind === "quiz_html" ? "趣味测试" : "小游戏"} style=${{width:"100%",height:it.output_kind === "quiz_html" ? "650px" : "520px",border:"0",borderRadius:"12px",marginTop:"8px",display:"block"}}></iframe>`
+                          ? html`<iframe src=${outUrl(it.local_file) || ""} sandbox="allow-scripts" data-blindbox=${it.output_kind === "quiz_html" ? "quiz" : "game"} title=${it.output_kind === "quiz_html" ? "趣味测试" : "小游戏"} style=${{width:"100%",height:it.output_kind === "quiz_html" ? "650px" : "520px",border:"0",borderRadius:"12px",marginTop:"8px",display:"block"}}></iframe>`
                           : html`<div class="plan">${it.output || ""}</div>`}`}
                      ${it.output_kind === "image_strip" && (() => {
                        let pages = [];
@@ -902,12 +930,14 @@
                        return html`
                          <div style=${{display:"flex",gap:8,overflowX:"auto"}}>
                            ${pages.map((p, i) => {
-                             const src = (() => {
-                               if (p.local) return "/output/" + p.local;
-                               if (p.url && (p.url.startsWith("http") || p.url.startsWith("/output/"))) return p.url;
-                               if (p.url && !/^[a-zA-Z]:[\\/]/.test(p.url) && !p.url.startsWith("/")) return "/output/" + p.url;
-                               return null;
-                             })();
+                            const src = (() => {
+                              if (p.local) return outUrl(p.local);
+                              const u = p.url || "";
+                              if (/^https?:\/\//i.test(u)) return u;
+                              if (u.startsWith("/output/")) return outUrl(u.slice("/output/".length)) || u;
+                              if (u && !/^[a-zA-Z]:[\\/]/.test(u) && !u.startsWith("/")) return outUrl(u);
+                              return null;
+                            })();
                              return html`
                                <div key=${i} style=${{flex:"0 0 auto",width:"60%",maxWidth:280,borderRadius:8,overflow:"hidden",background:"#0b1220"}}>
                                  ${src
@@ -926,12 +956,13 @@
                          lyrics = parsed.lyrics || "";
                          ttsInfo = parsed.tts_info || "";
                        } catch (e) { console.error("[demo-hist] song parse:", e); }
-                       const audioSrc = (() => {
-                         if (!audio) return null;
-                         if (audio.startsWith("http") || audio.startsWith("/output/")) return audio;
-                         if (!/^[a-zA-Z]:[\\/]/.test(audio) && !audio.startsWith("/")) return "/output/" + audio;
-                         return null;
-                       })();
+                      const audioSrc = (() => {
+                        if (!audio) return null;
+                        if (/^https?:\/\//i.test(audio)) return audio;
+                        if (audio.startsWith("/output/")) return outUrl(audio.slice("/output/".length)) || audio;
+                        if (audio && !/^[a-zA-Z]:[\\/]/.test(audio) && !audio.startsWith("/")) return outUrl(audio);
+                        return null;
+                      })();
                        return html`
                          <div class="concept" style=${{whiteSpace:"pre-wrap",fontFamily:'"PingFang SC","Microsoft YaHei",serif',lineHeight:1.8}}>${lyrics || "（歌词为空）"}</div>
                          ${audioSrc && html`<audio src=${audioSrc} controls preload="metadata" style=${{width:"100%",borderRadius:"12px",marginTop:10,display:"block"}}></audio>`}
@@ -939,25 +970,25 @@
                      })()}
                      ${(it.output_kind === "image_url" || it.output_kind === "video_file" || it.output_kind === "audio_file") && html`
                        ${it.output_kind === "video_file"
-                         ? html`<video src=${it.local_file ? "/output/" + it.local_file : it.output} controls style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}}></video>`
+                         ? html`<video src=${outUrl(it.local_file) || it.output} controls style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px"}}></video>`
                          : it.output_kind === "audio_file"
-                           ? html`<audio src=${it.local_file ? "/output/" + it.local_file : it.output} controls preload="metadata" style=${{width:"100%",borderRadius:"12px",marginTop:"8px"}}></audio>`
+                           ? html`<audio src=${outUrl(it.local_file) || it.output} controls preload="metadata" style=${{width:"100%",borderRadius:"12px",marginTop:"8px"}}></audio>`
                            : ["recipe","tarot","character"].includes(it.mode)
                              ? html`<div style=${{display:"flex",flexDirection:"column",alignItems:"center",marginTop:"8px"}}>
-                                 <img src=${it.local_file ? "/output/" + it.local_file : it.output} style=${{maxWidth:"480px",width:"100%",height:"auto",objectFit:"contain",borderRadius:"12px",display:"block",background:"var(--panel-2)"}} alt="result" />
+                                 <img src=${outUrl(it.local_file) || it.output} style=${{maxWidth:"480px",width:"100%",height:"auto",objectFit:"contain",borderRadius:"12px",display:"block",background:"var(--panel-2)"}} alt="result" />
                                  ${it.caption ? html`<div style=${{maxWidth:"480px",width:"100%",marginTop:"10px",padding:"12px 14px",boxSizing:"border-box",background:"var(--panel-2)",border:"1px solid var(--border)",borderRadius:"12px",color:"var(--text)",fontSize:14,lineHeight:1.7,whiteSpace:"pre-wrap",wordBreak:"break-word",textAlign:"left",textShadow:"none"}}>${it.caption}</div>` : null}
                                </div>`
                              : html`<div style=${{position:"relative",display:"inline-block",maxWidth:"100%"}}>
-                                 <img src=${it.local_file ? "/output/" + it.local_file : it.output} style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px",display:"block"}} alt="result" />
+                                 <img src=${outUrl(it.local_file) || it.output} style=${{maxWidth:"100%",borderRadius:"12px",marginTop:"8px",display:"block"}} alt="result" />
                                  ${it.caption ? html`<div style=${{position:"absolute",left:0,right:0,bottom:0,padding:"10px 12px",borderRadius:"0 0 12px 12px",color:"#fff",background:"linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))",fontSize:20,fontWeight:700,textAlign:"center",textShadow:"0 1px 3px rgba(0,0,0,0.5)"}}>${it.caption}</div>` : null}
                                </div>`}
                      `}
                      ${it.model_used ? html`<div class="model-hint">由 ${it.model_used} 生成</div>` : null}
                     <div class="archive-links">
-                      <a href=${"/output/" + it.json} target="_blank" rel="noreferrer">归档 JSON</a>
-                      ${it.local_file && html`<a href=${"/output/" + it.local_file} target="_blank" rel="noreferrer">${it.local_file.endsWith(".md") ? "文字成品" : "图片成品"}</a>`}
-                      ${it.text_file && it.text_file !== it.local_file && html`<a href=${"/output/" + it.text_file} target="_blank" rel="noreferrer">文字成品</a>`}
-                      ${it.image_url && /\.(png|jpe?g|gif|webp)$/i.test(it.image_url) && html`<a href=${"/output/" + it.image_url} target="_blank" rel="noreferrer">图片成品</a>`}
+                      <a href=${outUrl(it.json) || ""} target="_blank" rel="noreferrer">归档 JSON</a>
+                      ${it.local_file && html`<a href=${outUrl(it.local_file) || ""} target="_blank" rel="noreferrer">${it.local_file.endsWith(".md") ? "文字成品" : "图片成品"}</a>`}
+                      ${it.text_file && it.text_file !== it.local_file && html`<a href=${outUrl(it.text_file) || ""} target="_blank" rel="noreferrer">文字成品</a>`}
+                      ${it.image_url && /\.(png|jpe?g|gif|webp)$/i.test(it.image_url) && html`<a href=${outUrl(it.image_url) || ""} target="_blank" rel="noreferrer">图片成品</a>`}
                     </div>
                     <button class="save-btn" style=${{marginTop:"10px"}}
                       onClick=${() => { setSelected(it.mode); setTab("box"); runOpen(it.mode, it.seed); }}>用此 seed 重抽</button>

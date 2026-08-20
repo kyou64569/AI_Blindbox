@@ -1,5 +1,6 @@
 import React from "react";
 import SandboxedHtmlFrame from "./SandboxedHtmlFrame.jsx";
+import { outUrl, mediaSrc } from "../lib/paths.js";
 
 function parseCharFields(text) {
   if (!text) return [];
@@ -115,13 +116,7 @@ export default function ResultPanel({ result, onReroll }) {
           {image_url && (
             <div style={{ width: "100%", paddingTop: "100%", position: "relative", background: "#0b1220" }}>
               <img
-                src={(() => {
-                  if (archived?.local_file) return `/output/${archived.local_file}`;
-                  if (/^https?:\/\//.test(image_url) || image_url.startsWith("/output/")) return image_url;
-                  if (image_url && !/^[a-zA-Z]:[\\/]/.test(image_url) && !image_url.startsWith("/"))
-                    return `/output/${image_url}`;
-                  return image_url;
-                })()}
+                src={mediaSrc(archived?.local_file, image_url) || ""}
                 alt="avatar"
                 style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover" }}
               />
@@ -153,11 +148,9 @@ export default function ResultPanel({ result, onReroll }) {
       {(output_kind === "game_html" || output_kind === "quiz_html") && (
         <SandboxedHtmlFrame
           src={
-            archived?.local_file
-              ? `/output/${archived.local_file}`
-              : output.startsWith("/output/")
-              ? output
-              : null
+            // output 可能是 undefined（后端异常路径），直接 .startsWith 会 TypeError 白屏
+            outUrl(archived?.local_file) ||
+            (typeof output === "string" && output.startsWith("/output/") ? output : null)
           }
           isQuiz={output_kind === "quiz_html"}
           fallback={output}
@@ -167,13 +160,7 @@ export default function ResultPanel({ result, onReroll }) {
         (() => {
           // 与主页面/历史页一致：归档后 output 可能仅是本地相对文件名（无 /output/ 前缀），
           // 须优先读取 archived.local_file 并补 /output/ 前缀，否则退回纯文本。
-          const ms = archived?.local_file
-            ? `/output/${archived.local_file}`
-            : output.startsWith("http") || output.startsWith("/output/")
-            ? output
-            : !/^[a-zA-Z]:[\\/]/.test(output) && !output.startsWith("/")
-            ? `/output/${output}`
-            : null;
+          const ms = mediaSrc(archived?.local_file, output);
           if (!ms) return <div className="plan">{output}</div>;
           if (output_kind === "audio_file") {
             return (
@@ -301,13 +288,7 @@ export default function ResultPanel({ result, onReroll }) {
             WebkitOverflowScrolling: "touch",
           }}>
             {pages.map((p, i) => {
-              const src = p.local
-                ? `/output/${p.local}`
-                : p.url && (p.url.startsWith("http") || p.url.startsWith("/output/"))
-                ? p.url
-                : p.url && !/^[a-zA-Z]:[\\/]/.test(p.url) && !p.url.startsWith("/")
-                ? `/output/${p.url}`
-                : null;
+              const src = mediaSrc(p?.local, p?.url);
               return (
                 <div key={i} style={{
                   flex: "0 0 auto",
@@ -360,13 +341,7 @@ export default function ResultPanel({ result, onReroll }) {
         } catch (e) {
           console.error("[ResultPanel] Failed to parse song JSON:", e);
         }
-        const audioSrc = audio
-          ? (audio.startsWith("http") || audio.startsWith("/output/")
-            ? audio
-            : !/^[a-zA-Z]:[\\/]/.test(audio) && !audio.startsWith("/")
-            ? `/output/${audio}`
-            : null)
-          : null;
+        const audioSrc = mediaSrc(null, audio);
         return (
           <div style={{ marginTop: 8 }}>
             <div style={{
@@ -415,11 +390,13 @@ export default function ResultPanel({ result, onReroll }) {
           <span className="archive-badge">✓ 已自动归档</span>
           <span className="archive-time">{archived.timestamp}</span>
           <div className="archive-links">
-            <a href={`/output/${archived.json}`} target="_blank" rel="noreferrer">
-              归档记录 (JSON)
-            </a>
-            {archived.local_file ? (
-              <a href={`/output/${archived.local_file}`} target="_blank" rel="noreferrer">
+            {outUrl(archived.json) && (
+              <a href={outUrl(archived.json)} target="_blank" rel="noreferrer">
+                归档记录 (JSON)
+              </a>
+            )}
+            {outUrl(archived.local_file) ? (
+              <a href={outUrl(archived.local_file)} target="_blank" rel="noreferrer">
                 本地成品
               </a>
             ) : (output_kind === "image_url" || output_kind === "video_file" || output_kind === "image_strip") ? (

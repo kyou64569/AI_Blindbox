@@ -28,7 +28,12 @@ def probe(name: str, port: int, logfile: str) -> bool:
         log = os.path.join(CACHE, logfile)
         if os.path.exists(log):
             print(f"  ---- {logfile} (最近 40 行) ----")
-            text = open(log, encoding="utf-8", errors="ignore").read().strip()
+            try:
+                with open(log, encoding="utf-8", errors="ignore") as f:
+                    text = f.read().strip()
+            except OSError as read_err:
+                print(f"  (读取日志失败: {read_err})")
+                return False
             lines = text.splitlines()[-40:]
             print("\n".join(lines))
         else:

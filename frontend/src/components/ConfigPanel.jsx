@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
+import { fetchJson, postJson } from "../lib/http.js";
 
 function Field({ label, value, onChange, type = "text", placeholder = "" }) {
   return (
@@ -107,17 +108,11 @@ function ModelSlot({ title, note, basePath, keyMap, config, update }) {
     setErr(null);
     setFetching(true);
     try {
-      const resp = await fetch("/api/models", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          base_url: get("base_url") || config.global?.default_base_url || "",
-          api_key: get("api_key") || config.global?.default_api_key || "",
-        }),
+      const data = await postJson("/api/models", {
+        base_url: get("base_url") || config.global?.default_base_url || "",
+        api_key: get("api_key") || config.global?.default_api_key || "",
       });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "获取失败");
-      setModels(data.models || []);
+      setModels((data && data.models) || []);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -204,17 +199,11 @@ function ModelCard({ basePath, idx, card, total, config, update }) {
     setErr(null);
     setFetching(true);
     try {
-      const resp = await fetch("/api/models", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          base_url: getv("base_url") || config.global?.default_base_url || "",
-          api_key: getv("api_key") || config.global?.default_api_key || "",
-        }),
+      const data = await postJson("/api/models", {
+        base_url: getv("base_url") || config.global?.default_base_url || "",
+        api_key: getv("api_key") || config.global?.default_api_key || "",
       });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "获取失败");
-      setModels(data.models || []);
+      setModels((data && data.models) || []);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -311,8 +300,7 @@ export default function ConfigPanel() {
   const initialPoolRef = useRef(null);
 
   useEffect(() => {
-    fetch("/api/config")
-      .then((r) => r.json())
+    fetchJson("/api/config")
       .then((d) => {
         setConfig(d.config);
         setPaths(d.paths || {});
@@ -361,13 +349,7 @@ export default function ConfigPanel() {
   const genSeed = async (dim) => {
     setPoolUI((s) => ({ ...s, gen: { ...s.gen, [dim]: true }, genErr: { ...s.genErr, [dim]: null } }));
     try {
-      const resp = await fetch("/api/generate-seed", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dimension: dim, existing: getPool(dim) }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "生成失败");
+      const data = await postJson("/api/generate-seed", { dimension: dim, existing: getPool(dim) });
       const v = (data.seed || "").trim();
       if (!v) throw new Error("模型返回为空");
       if (!getPool(dim).includes(v)) update(`randomness.pool.${dim}`, [...getPool(dim), v]);
@@ -418,13 +400,7 @@ export default function ConfigPanel() {
   const genModeSeed = async (dim) => {
     setModePoolUI((s) => ({ ...s, gen: { ...s.gen, [dim]: true }, genErr: { ...s.genErr, [dim]: null } }));
     try {
-      const resp = await fetch("/api/generate-seed", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dimension: dim, existing: getModePool(dim), mode_id: "code" }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "生成失败");
+      const data = await postJson("/api/generate-seed", { dimension: dim, existing: getModePool(dim), mode_id: "code" });
       const v = (data.seed || "").trim();
       if (!v) throw new Error("模型返回为空");
       const path = modePoolPath(dim);
@@ -441,13 +417,7 @@ export default function ConfigPanel() {
     setModeRefreshing(true);
     setModeRefreshErr(null);
     try {
-      const resp = await fetch("/api/seed/refresh-all", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode_id: "code" }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "刷新失败");
+      const data = await postJson("/api/seed/refresh-all", { mode_id: "code" });
       update(`modes.${idx}.pool`, data.pool);
     } catch (e) {
       setModeRefreshErr(e.message);
@@ -459,12 +429,7 @@ export default function ConfigPanel() {
   const save = async () => {
     setError(null);
     try {
-      const resp = await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
-      });
-      if (!resp.ok) throw new Error("保存失败");
+      await postJson("/api/config", { config });
       setSaved(true);
     } catch (e) {
       setError("保存失败: " + e.message);

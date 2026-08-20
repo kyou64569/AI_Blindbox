@@ -1,5 +1,6 @@
 import React from "react";
 import SandboxedHtmlFrame from "./SandboxedHtmlFrame.jsx";
+import { outUrl, mediaSrc } from "../lib/paths.js";
 
 // 提取 spec 章节（【环境依赖清单】/【磁盘占用预估】等），取到下一个【章节】或结尾
 function extractSection(text, name) {
@@ -130,8 +131,8 @@ export default function HistoryPanel({
                         <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>
                           {pages.map((p, i) => (
                             <div key={i} style={{ flex: "0 0 auto", width: "60%", maxWidth: 280, borderRadius: 8, overflow: "hidden", background: "#0b1220" }}>
-                              {(p.local || (p.url && (p.url.startsWith("http") || p.url.startsWith("/output/"))))
-                                ? <img src={p.local ? "/output/" + p.local : p.url} alt={`p${i+1}`} style={{ width: "100%", display: "block" }} />
+                              {mediaSrc(p?.local, p?.url)
+                                ? <img src={mediaSrc(p.local, p.url)} alt={`p${i+1}`} style={{ width: "100%", display: "block" }} />
                                 : <div style={{ padding: 20, color: "#888", textAlign: "center", fontSize: 12 }}>第 {i+1} 页（未生成）</div>}
                               <div style={{ padding: "4px 8px", fontSize: 10, color: "#888", background: "#1f232c" }}>第 {i + 1} / {pages.length} 页</div>
                             </div>
@@ -152,7 +153,7 @@ export default function HistoryPanel({
                     if (it.output_kind === "game_html" || it.output_kind === "quiz_html") {
                       return (
                         <SandboxedHtmlFrame
-                          src={it.local_file ? `/output/${it.local_file}` : it.output}
+                          src={mediaSrc(it.local_file, it.output)}
                           isQuiz={it.output_kind === "quiz_html"}
                           fallback={it.output}
                         />
@@ -161,14 +162,14 @@ export default function HistoryPanel({
                     // 其余：image_url / video_file
                     return (it.output_kind === "video_file" ? (
                       <video
-                        src={it.local_file ? "/output/" + it.local_file : it.output}
+                        src={mediaSrc(it.local_file, it.output)}
                         controls
                         style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8 }}
                       />
                     ) : (
                       (["recipe", "tarot", "character"].includes(it.mode) ? (
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 8 }}>
-                          <img src={it.local_file ? "/output/" + it.local_file : it.output} alt="result" style={{ maxWidth: "480px", width: "100%", height: "auto", objectFit: "contain", borderRadius: "12px", display: "block", background: "var(--panel-2)" }} />
+                          <img src={mediaSrc(it.local_file, it.output)} alt="result" style={{ maxWidth: "480px", width: "100%", height: "auto", objectFit: "contain", borderRadius: "12px", display: "block", background: "var(--panel-2)" }} />
                           {it.caption ? (
                             <div style={{ maxWidth: "480px", width: "100%", marginTop: 10, padding: "12px 14px", boxSizing: "border-box", background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: "12px", color: "var(--text)", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word", textAlign: "left" }}>
                               {it.caption}
@@ -177,7 +178,7 @@ export default function HistoryPanel({
                         </div>
                       ) : (
                         <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
-                          <img src={it.local_file ? "/output/" + it.local_file : it.output} alt="result" style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8, display: "block" }} />
+                          <img src={mediaSrc(it.local_file, it.output)} alt="result" style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8, display: "block" }} />
                           {it.caption ? (
                             <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, marginTop: 8, padding: "10px 12px", borderRadius: "0 0 12px 12px", color: "#fff", background: "linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))", fontSize: 20, fontWeight: 700, textAlign: "center", textShadow: "0 1px 3px rgba(0,0,0,0.5)" }}>
                               {it.caption}
@@ -192,21 +193,23 @@ export default function HistoryPanel({
                     </div>
                   ) : null}
                   <div className="archive-links">
-                    <a href={`/output/${it.json}`} target="_blank" rel="noreferrer">
-                      归档 JSON
-                    </a>
-                    {it.local_file && (
-                      <a href={`/output/${it.local_file}`} target="_blank" rel="noreferrer">
+                    {outUrl(it.json) && (
+                      <a href={outUrl(it.json)} target="_blank" rel="noreferrer">
+                        归档 JSON
+                      </a>
+                    )}
+                    {outUrl(it.local_file) && (
+                      <a href={outUrl(it.local_file)} target="_blank" rel="noreferrer">
                         {it.local_file.endsWith(".md") ? "文字成品" : "图片成品"}
                       </a>
                     )}
-                    {it.text_file && it.text_file !== it.local_file && (
-                      <a href={`/output/${it.text_file}`} target="_blank" rel="noreferrer">
+                    {it.text_file && it.text_file !== it.local_file && outUrl(it.text_file) && (
+                      <a href={outUrl(it.text_file)} target="_blank" rel="noreferrer">
                         文字成品
                       </a>
                     )}
-                    {it.image_url && /\.(png|jpe?g|gif|webp)$/i.test(it.image_url) && (
-                      <a href={`/output/${it.image_url}`} target="_blank" rel="noreferrer">
+                    {it.image_url && /\.(png|jpe?g|gif|webp)$/i.test(it.image_url) && outUrl(it.image_url) && (
+                      <a href={outUrl(it.image_url)} target="_blank" rel="noreferrer">
                         图片成品
                       </a>
                     )}

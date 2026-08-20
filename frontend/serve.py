@@ -82,9 +82,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def _serve_output(self, send_body: bool):
         """服务 /output/ 目录下的生成产物；音频/视频需要 Content-Length + Accept-Ranges。"""
         # 文件名可能含中文（按提示词命名），浏览器会做 URL 编码，这里还原回来
-        rel = urllib.parse.unquote(self.path[len("/output/"):])
+        # 顺序很关键：先在「原始未解码」路径上剥掉查询串/锚点，再 unquote。
+        # 反过来做会把文件名里合法的 %23 解成 # 后当成锚点分隔符截断 ——
+        # 本项目产物名按提示词生成，确实存在含 # 的文件（如 result_#_《头条…》.json）。
+        raw = self.path[len("/output/"):].split("?", 1)[0].split("#", 1)[0]
+        rel = urllib.parse.unquote(raw)
+        # 绝对路径 / 带盘符的输入会让 `OUTPUT_DIR / rel` 直接跳出 OUTPUT_DIR
+        if not rel or Path(rel).is_absolute() or Path(rel).drive or rel[0] in "/\\":
+            self.send_error(404)
+            return
         target = (OUTPUT_DIR / rel).resolve()
-        if not str(target).startswith(str(OUTPUT_DIR)) or not target.exists():
+        # 必须用 relative_to 做「目录归属」判断，不能用字符串 startswith：
+        # OUTPUT_DIR = ...\AI_Blindbox\output 时，同级的 ...\AI_Blindbox\output_backup_xxx
+        # 字符串前缀同样匹配 —— 本项目就真实存在 output_backup_20260730_224242 目录，
+        # 因此 /output/../output_backup_20260730_224242/xxx 曾可被读出。
+        try:
+            target.relative_to(OUTPUT_DIR)
+        except ValueError:
+            self.send_error(404)
+            return
+        # 只服务普通文件；目录会在后面 stat().st_size / open() 处炸成 500
+        if not target.is_file():
             self.send_error(404)
             return
 

@@ -108,6 +108,14 @@ def load_settings(path: str | Path | None = None) -> Settings:
         raise FileNotFoundError(f"配置文件不存在: {path}")
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
+    # 空文件 / 只有注释时 safe_load 返回 None；顶层写成 list/str 时类型也不对。
+    # 这里统一兜底，避免后续 raw.get(...) 抛 AttributeError 导致进程起不来。
+    if raw is None:
+        raw = {}
+    elif not isinstance(raw, dict):
+        raise ValueError(
+            f"配置文件格式错误: {path} 顶层应为映射(dict)，实际为 {type(raw).__name__}"
+        )
     # 多模型规范化：把 agents / providers 各 section 的扁平 model 升级为 models 列表
     agents = raw.get("agents", {}) or {}
     for ak in ("creative", "planner", "executor"):
