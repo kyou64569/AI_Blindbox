@@ -81,7 +81,23 @@ export default function HistoryPanel({
   onExpand,
   onRefresh,
   onReroll,
+  onToggleFavorite,
+  onRate,
+  tokensPrice = 0,
 }) {
+  const fmtTokens = (u) => {
+    if (!u || typeof u !== "object") return null;
+    const tt = Number(u.total_tokens || 0);
+    if (!tt) return null;
+    return `${tt.toLocaleString()} tokens`;
+  };
+  const costOf = (u) => {
+    if (!u || !tokensPrice) return null;
+    const pt = Number(u.prompt_tokens || 0);
+    const ct = Number(u.completion_tokens || 0);
+    if (!pt && !ct) return null;
+    return ((pt + ct) / 1000.0 * tokensPrice).toFixed(4);
+  };
   return (
     <>
       <div className="section-title">历史记录（{history.length} 条）</div>
@@ -99,6 +115,16 @@ export default function HistoryPanel({
                 <span className="hist-mode">{modeName(it.mode)}</span>
                 <span className="hist-time">{it.timestamp || ""}</span>
                 <span className="hist-kind">{it.output_kind || ""}</span>
+                <span
+                  className={`fav-toggle ${it.favorite ? "fav-on" : ""}`}
+                  title={it.favorite ? "取消收藏" : "收藏"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleFavorite(it.id, !it.favorite);
+                  }}
+                >
+                  {it.favorite ? "★" : "☆"}
+                </span>
               </div>
               <div className="seed-pill">seed: {it.seed || "（无）"}</div>
               {open ? (
@@ -192,6 +218,36 @@ export default function HistoryPanel({
                       由 {it.model_used} 生成
                     </div>
                   ) : null}
+                  {(fmtTokens(it.usage) || costOf(it.usage)) && (
+                    <div style={{ marginTop: 4, fontSize: 12, color: "var(--muted, #888)" }}>
+                      {[fmtTokens(it.usage), costOf(it.usage) ? `约 ¥${costOf(it.usage)}` : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12, color: "var(--muted, #888)" }}>评分：</span>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        className="save-btn"
+                        style={{
+                          padding: "2px 8px",
+                          fontSize: 12,
+                          background: it.rating === n ? "var(--accent)" : "transparent",
+                          borderColor: "var(--border)",
+                          color: it.rating === n ? "#fff" : "var(--muted)",
+                        }}
+                        onClick={() => onRate(it.id, it.rating === n ? null : n)}
+                        title={it.rating === n ? "点击清除评分" : `评 ${n} 分`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                    {it.rating != null && (
+                      <span style={{ fontSize: 12, color: "var(--accent-2)" }}>已评 {it.rating} 分</span>
+                    )}
+                  </div>
                   <div className="archive-links">
                     {outUrl(it.json) && (
                       <a href={outUrl(it.json)} target="_blank" rel="noreferrer">
@@ -211,6 +267,11 @@ export default function HistoryPanel({
                     {it.image_url && /\.(png|jpe?g|gif|webp)$/i.test(it.image_url) && outUrl(it.image_url) && (
                       <a href={outUrl(it.image_url)} target="_blank" rel="noreferrer">
                         图片成品
+                      </a>
+                    )}
+                    {it.id && (
+                      <a href={`/api/export/${it.id}/zip`} download>
+                        下载 ZIP
                       </a>
                     )}
                   </div>

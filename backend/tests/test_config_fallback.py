@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import yaml
 
 from app import pipeline, config
+from app import executors  # _run_tts 拆分后位于 executors 模块，OpenAI 哨兵需打桩此处
 
 
 @contextlib.contextmanager
@@ -73,18 +74,18 @@ def test_load_settings_migration(tmp_path):
 # ---------------------------------------------------------------------------
 def test_resolve_models_fallback():
     g = {"base_url": "GB", "api_key": "GK"}
-    # 卡片空 -> 组级
+    # 卡片空 -> 组级（pipeline._normalize_base_url 只补 /v1，不补协议头）
     sec = {"base_url": "B", "api_key": "K", "models": [{"model": "m"}]}
     out = pipeline._resolve_models(sec, g)
-    assert out[0]["base_url"] == "B" and out[0]["api_key"] == "K"
+    assert out[0]["base_url"] == "B/v1" and out[0]["api_key"] == "K"
     # 卡片显式空 -> 仍回退组级
     sec2 = {"base_url": "B", "api_key": "K", "models": [{"model": "m2", "base_url": "", "api_key": ""}]}
     out2 = pipeline._resolve_models(sec2, g)
-    assert out2[0]["base_url"] == "B" and out2[0]["api_key"] == "K"
+    assert out2[0]["base_url"] == "B/v1" and out2[0]["api_key"] == "K"
     # 组级也无 -> 回退 global
     sec3 = {"models": [{"model": "mx", "base_url": "", "api_key": ""}]}
     out3 = pipeline._resolve_models(sec3, g)
-    assert out3[0]["base_url"] == "GB" and out3[0]["api_key"] == "GK"
+    assert out3[0]["base_url"] == "GB/v1" and out3[0]["api_key"] == "GK"
     # model 为空 -> 跳过该卡片
     sec4 = {"base_url": "B", "api_key": "K", "models": [{"model": ""}]}
     assert pipeline._resolve_models(sec4, g) == []
@@ -133,26 +134,33 @@ def test_call_with_fallback():
 def test_executor_creds_empty_chain():
     g = {"default_model": "gdm", "default_base_url": "gdb", "default_api_key": "gdk"}
     exec_cfg = {"model": "", "base_url": "", "api_key": "", "temperature": 0.8, "models": []}
+    empty_agent = {"model": "", "base_url": "", "api_key": "", "models": []}
     prov = {
         "image": {"base_url": "ib", "api_key": "ik", "model": "im",
                   "models": [{"model": "im", "base_url": "ib", "api_key": "ik", "temperature": None}]},
         "video": {"base_url": "vb", "api_key": "vk", "model": "vm",
                   "models": [{"model": "vm", "base_url": "vb", "api_key": "vk", "temperature": None}]},
     }
-    with _patch_raw(agents={"executor": exec_cfg}, providers=prov, global_=g):
+    # text 类型：executor/creative/planner 全空 -> global 兜底
+    with _patch_raw(agents={"executor": exec_cfg, "creative": empty_agent, "planner": empty_agent},
+                    providers=prov, global_=g):
         chain = pipeline._executor_creds("text")
-    # 顺序：image 置顶 -> video 置顶 -> global 兜底（仅置顶项，不是整列）
-    assert [c["model"] for c in chain] == ["im", "vm", "gdm"]
-    # 若 image 有多个模型，仍只取置顶项
-    prov2 = {
-        "image": {"base_url": "ib", "api_key": "ik",
-                  "models": [{"model": "im1"}, {"model": "im2"}]},
-        "video": {"base_url": "vb", "api_key": "vk",
-                  "models": [{"model": "vm1"}]},
-    }
-    with _patch_raw(agents={"executor": exec_cfg}, providers=prov2, global_=g):
-        chain2 = pipeline._executor_creds("text")
-    assert [c["model"] for c in chain2] == ["im1", "vm1", "gdm"]
+    assert [c["model"] for c in chain] == ["gdm"]
+    assert chain[0]["base_url"] == "gdb/v1"
+    # image 类型：优先 providers.image 置顶；image 空时回退 video 置顶；全空时 global 兜底
+    with _patch_raw(agents={"executor": exec_cfg, "creative": empty_agent, "planner": empty_agent},
+                    providers=prov, global_=g):
+        chain_img = pipeline._executor_creds("image")
+    assert [c["model"] for c in chain_img] == ["im"]
+    assert chain_img[0]["base_url"] == "ib/v1"
+    prov_no_image = {"image": {"model": "", "base_url": "", "api_key": "", "models": []},
+                     "video": {"base_url": "vb", "api_key": "vk", "model": "vm",
+                               "models": [{"model": "vm", "base_url": "vb", "api_key": "vk", "temperature": None}]}}
+    with _patch_raw(agents={"executor": exec_cfg, "creative": empty_agent, "planner": empty_agent},
+                    providers=prov_no_image, global_=g):
+        chain_img2 = pipeline._executor_creds("image")
+    # image 空 -> 回退链：video 置顶 + global 兜底
+    assert [c["model"] for c in chain_img2] == ["vm", "gdm"]
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +185,7 @@ def test_run_tts_cloud_fail_fallback_edge(monkeypatch):
                     raise RuntimeError("cloud down")
         class _FakeClient:
             audio = _FakeAudio
-        monkeypatch.setattr(pipeline, "OpenAI", lambda *a, **k: _FakeClient())
+        monkeypatch.setattr(executors, "OpenAI", lambda *a, **k: _FakeClient())
         # 2) 省略 voice 重试（直接 urllib.request.urlopen 发请求）也失败
         import urllib.request
         monkeypatch.setattr(urllib.request, "urlopen",
@@ -224,7 +232,7 @@ def test_run_tts_mock_shortcut(monkeypatch, tmp_path):
             calls["n"] += 1
             raise AssertionError("mock 模式下不应调用 OpenAI")
 
-    monkeypatch.setattr(pipeline, "OpenAI", lambda *a, **k: _FakeClient())
+    monkeypatch.setattr(executors, "OpenAI", lambda *a, **k: _FakeClient())
     try:
         path, info = pipeline._run_tts("你好世界，这是播客台词。", {})
         assert path.endswith(".wav"), f"mock 应返回本地占位音频路径，实际: {path}"

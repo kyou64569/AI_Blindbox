@@ -174,6 +174,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Access-Control-Allow-Origin", "*")
+        # API 数据禁止浏览器/中间缓存：配置、模式列表、开盒结果都可能随时变化，
+        # 缓存旧响应会导致「改了配置刷新页面却不生效」的假故障。
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
         self.end_headers()
         try:
             self.wfile.write(data)

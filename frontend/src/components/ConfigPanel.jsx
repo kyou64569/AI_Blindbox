@@ -298,6 +298,25 @@ export default function ConfigPanel() {
   const [error, setError] = useState(null);
   const [poolUI, setPoolUI] = useState({ addText: {}, gen: {}, genErr: {} });
   const initialPoolRef = useRef(null);
+  // 自定义模式表单状态（必须在提前 return 之前声明，否则触发 Hooks 顺序违规）
+  const [showNewMode, setShowNewMode] = useState(false);
+  const [newMode, setNewMode] = useState({});
+  const [newModeErr, setNewModeErr] = useState(null);
+  // code 模式独立工具池 UI 状态（同样必须在提前 return 之前声明）
+  const [modePoolUI, setModePoolUI] = useState({ addText: {}, gen: {}, genErr: {} });
+  const [modeRefreshing, setModeRefreshing] = useState(false);
+  const [modeRefreshErr, setModeRefreshErr] = useState(null);
+  // 全局种子池「一键刷新」状态（同样必须在提前 return 之前声明）
+  const [refreshingAll, setRefreshingAll] = useState(false);
+  const [refreshErr, setRefreshErr] = useState(null);
+  // TTS 可用音色（Edge + 云端），来自 /api/tts/voices
+  const [voices, setVoices] = useState({ edge: [], cloud: [], current: "" });
+
+  const loadVoices = () => {
+    fetchJson("/api/tts/voices")
+      .then((d) => setVoices({ edge: d?.edge || [], cloud: d?.cloud || [], current: d?.current || "" }))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     fetchJson("/api/config")
@@ -307,16 +326,27 @@ export default function ConfigPanel() {
         if (initialPoolRef.current === null) initialPoolRef.current = d.config?.randomness?.pool || {};
       })
       .catch((e) => setError("加载配置失败: " + e.message));
+    loadVoices();
   }, []);
 
   if (!config) return <div className="note">加载中…</div>;
 
   const update = (path, value) => {
     setConfig((prev) => {
+      // 配置还没加载完（prev 为 null）时直接跳过，避免 JSON.stringify(null) -> "null"
+      if (!prev || typeof prev !== "object") return prev;
       const next = JSON.parse(JSON.stringify(prev));
       let node = next;
       const keys = path.split(".");
-      for (let i = 0; i < keys.length - 1; i++) node = node[keys[i]];
+      for (let i = 0; i < keys.length - 1; i++) {
+        const k = keys[i];
+        // 中间层缺失或不是对象时按需创建：下一段 key 是纯数字则建数组，否则建对象。
+        // 原实现直接 node = node[k]，一旦某层不存在，下一轮就是 undefined[k] -> TypeError，整个面板白屏。
+        if (node[k] === null || typeof node[k] !== "object") {
+          node[k] = /^\d+$/.test(keys[i + 1]) ? [] : {};
+        }
+        node = node[k];
+      }
       node[keys[keys.length - 1]] = value;
       return next;
     });
@@ -369,9 +399,6 @@ export default function ConfigPanel() {
     const i = codeModeIdx();
     return (i >= 0 && config?.modes?.[i]?.pool?.[dim]) || [];
   };
-  const [modePoolUI, setModePoolUI] = useState({ addText: {}, gen: {}, genErr: {} });
-  const [modeRefreshing, setModeRefreshing] = useState(false);
-  const [modeRefreshErr, setModeRefreshErr] = useState(null);
   const modePoolPath = (dim) => {
     const idx = codeModeIdx();
     if (idx < 0 || idx >= (config?.modes || []).length) return null;
@@ -425,15 +452,61 @@ export default function ConfigPanel() {
       setModeRefreshing(false);
     }
   };
+  const refreshAllSeeds = async () => {
+    setRefreshingAll(true);
+    setRefreshErr(null);
+    try {
+      const data = await postJson("/api/seed/refresh-all", {});
+      update("randomness.pool", data.pool);
+    } catch (e) {
+      setRefreshErr(e.message);
+    } finally {
+      setRefreshingAll(false);
+    }
+  };
 
   const save = async () => {
     setError(null);
     try {
       await postJson("/api/config", { config });
       setSaved(true);
+      // 保存后刷新可用音色，反映新配置
+      loadVoices();
     } catch (e) {
       setError("保存失败: " + e.message);
     }
+  };
+
+  // ---- 自定义模式 ----
+  const VALID_EXECUTOR_TYPES = ["text","image","video","tts","game","quiz","character_card","code-spec","code-cli","illustrated_story","video_storyboard","song"];
+  const VALID_OUTPUT_HANDLERS = ["text","image_url","video_file","audio_file","spec_md","game_html","quiz_html","character_card","image_strip","song"];
+  const addCustomMode = () => {
+    setNewModeErr(null);
+    const m = newMode || {};
+    const id = (m.id || "").trim();
+    const name = (m.name || "").trim();
+    if (!id) { setNewModeErr("模式 id 不能为空"); return; }
+    if (!/^[a-z][a-z0-9-]*$/.test(id)) { setNewModeErr("id 只能包含小写字母、数字与中划线，且以字母开头"); return; }
+    if (!name) { setNewModeErr("模式名称不能为空"); return; }
+    const etype = m.executor_type || "text";
+    if (!VALID_EXECUTOR_TYPES.includes(etype)) { setNewModeErr("executor_type 不在合法枚举内"); return; }
+    const oh = m.output_handler || "text";
+    if (!VALID_OUTPUT_HANDLERS.includes(oh)) { setNewModeErr("output_handler 不在合法枚举内"); return; }
+    if ((config.modes || []).some((x) => x.id === id)) { setNewModeErr("该 id 已存在，请换一个"); return; }
+    update("modes", [
+      ...(config.modes || []),
+      {
+        id,
+        name,
+        executor_type: etype,
+        output_handler: oh,
+        creative_prompt: (m.creative_prompt || "").trim(),
+        planner_template: (m.planner_template || "").trim(),
+      },
+    ]);
+    setShowNewMode(false);
+    setNewMode({});
+    setSaved(false);
   };
 
   const g = config.global || {};
@@ -442,6 +515,67 @@ export default function ConfigPanel() {
 
   return (
     <div>
+      <div className="section-title">模式管理（自定义模式）</div>
+      <div className="config-form">
+        <div className="note">
+          已有 {config.modes?.length || 0} 个模式。可新增自定义模式（id 需唯一、executor_type 需在合法枚举内），保存后即可在开盲盒页选择。
+        </div>
+        {!showNewMode ? (
+          <button type="button" className="save-btn" onClick={() => setShowNewMode(true)}>
+            ＋ 新建模式
+          </button>
+        ) : (
+          <>
+            <div className="form-row">
+              <label>模式 id（唯一，英文小写+中划线，如 my-game）</label>
+              <input value={newMode.id || ""} onChange={(e) => setNewMode((s) => ({ ...s, id: e.target.value }))} placeholder="如 my-mode" />
+            </div>
+            <div className="form-row">
+              <label>模式名称 *</label>
+              <input value={newMode.name || ""} onChange={(e) => setNewMode((s) => ({ ...s, name: e.target.value }))} placeholder="如 我的小游戏" />
+            </div>
+            <div className="form-row">
+              <label>执行器类型 executor_type *</label>
+              <select value={newMode.executor_type || "text"} onChange={(e) => setNewMode((s) => ({ ...s, executor_type: e.target.value }))}>
+                {VALID_EXECUTOR_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+              <div className="note">text=文本 · image=图片 · video=视频 · tts=播客 · game=小游戏 · quiz=测验 · song=歌曲 · illustrated_story=插画故事 · video_storyboard=视频分镜 · code-spec=代码 spec</div>
+            </div>
+            <div className="form-row">
+              <label>成品类型 output_handler</label>
+              <select value={newMode.output_handler || "text"} onChange={(e) => setNewMode((s) => ({ ...s, output_handler: e.target.value }))}>
+                {VALID_OUTPUT_HANDLERS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-row">
+              <label>创意提示词 creative_prompt（可选）</label>
+              <textarea value={newMode.creative_prompt || ""} onChange={(e) => setNewMode((s) => ({ ...s, creative_prompt: e.target.value }))} placeholder="留空则用默认创意 Agent 提示词" />
+            </div>
+            <div className="form-row">
+              <label>规划模板 planner_template（可选）</label>
+              <textarea value={newMode.planner_template || ""} onChange={(e) => setNewMode((s) => ({ ...s, planner_template: e.target.value }))} placeholder="留空则用默认规划模板" />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className="save-btn" onClick={addCustomMode}>
+                添加模式
+              </button>
+              <button type="button" className="save-btn" style={{ background: "transparent", color: "var(--muted)" }} onClick={() => setShowNewMode(false)}>
+                取消
+              </button>
+            </div>
+            {newModeErr && <div className="error">{newModeErr}</div>}
+          </>
+        )}
+      </div>
+
       <div className="section-title">全局配置</div>
       <div className="config-form">
         <div className="form-row">
@@ -461,6 +595,16 @@ export default function ConfigPanel() {
           label="每抽抽取种子数 (per_open_draw)"
           value={rnd.per_open_draw ?? 2}
           onChange={(v) => update("randomness.per_open_draw", Number(v))}
+        />
+
+        <div className="section-title">成本估算（Token 追踪）</div>
+        <Field
+          label="每千 token 单价（¥，0 = 不估算成本；历史面板与统计页按此换算）"
+          type="number"
+          step="0.001"
+          value={g.tokens_price ?? 0}
+          onChange={(v) => update("global.tokens_price", v === "" ? 0 : Number(v))}
+          placeholder="如 0.01（即每千 token 一分钱）"
         />
 
         <div className="section-title">随机种子池（twist pool）</div>
@@ -495,6 +639,11 @@ export default function ConfigPanel() {
         <button type="button" className="save-btn"
           style={{ marginTop: "10px", background: "transparent", color: "var(--muted)" }}
           onClick={resetPool}>↺ 恢复默认种子池</button>
+        <button type="button" className="save-btn"
+          style={{ marginTop: "6px", background: "var(--accent)", color: "#fff", width: "100%" }}
+          disabled={refreshingAll}
+          onClick={refreshAllSeeds}>{refreshingAll ? "⏳ 正在刷新..." : "🔀 一键刷新种子池"}</button>
+        {refreshErr && <div className="error">{refreshErr}</div>}
 
         {codeModeIdx() >= 0 && (
           <>
@@ -550,9 +699,10 @@ export default function ConfigPanel() {
       <ModelCards title="Agent2 规划（低温度，严谨格式化）" basePath="agents.planner" config={config} update={update} />
       <ModelCards title="Agent3 执行（文本类；图片/视频由下方 provider 覆盖）" basePath="agents.executor" config={config} update={update} />
 
-      <div className="section-title">图片 / 视频 模型（执行 Agent 调多模态时覆盖，运行时按序 fallback）</div>
+      <div className="section-title">图片 / 视频 / 游戏 模型（执行 Agent 调多模态时覆盖，运行时按序 fallback）</div>
       <ModelCards title="图片模型" basePath="providers.image" config={config} update={update} />
       <ModelCards title="视频模型" basePath="providers.video" config={config} update={update} />
+      <ModelCards title="小游戏模型" basePath="providers.game" config={config} update={update} />
 
       <div className="section-title">播客 TTS 语音合成（文字 → 语音）</div>
       <div className="config-form">
@@ -561,12 +711,17 @@ export default function ConfigPanel() {
           <b>同时填好 base_url / api_key</b> → 走云端大模型（用下方 model 指定模型，任意兼容 OpenAI /audio/speech 的厂商均可）；
           云端调用出错会自动回退 Edge TTS。
         </div>
-        <Field
-          label="音色 voice（edge-tts 例：zh-CN-XiaoxiaoNeural；云端例：alloy / echo / 厂商自定义名）"
-          value={tp.voice}
-          onChange={(v) => update("providers.tts.voice", v)}
-          placeholder="留空=各引擎默认音色"
-        />
+        <div className="form-row">
+          <label>音色 Voice（不选=各引擎默认；Edge 例 zh-CN-XiaoxiaoNeural，云端例 alloy / 厂商自定义名）</label>
+          <ModelPicker
+            value={tp.voice}
+            options={[...(voices.edge || []).map((v) => v?.id), ...(voices.cloud || []).map((v) => v?.id)].filter(Boolean)}
+            onPick={(v) => update("providers.tts.voice", v)}
+            placeholder="Edge 例: zh-CN-XiaoxiaoNeural · 云端直接手写音色名"
+            emptyLabel="（留空=默认音色）"
+          />
+          <div className="note">可从下拉建议中随时改选，也可手写任意音色名</div>
+        </div>
       </div>
       <ModelCards
         title="TTS 模型（云端模式必填 model / base_url / api_key；未填 base_url/api_key 则默认免费 Edge TTS）"

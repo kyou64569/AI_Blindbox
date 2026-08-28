@@ -27,10 +27,37 @@
     .mode-card.selected{border-color:var(--accent);background:var(--panel-2)}
     .mode-card .name{font-size:16px;font-weight:600}
     .mode-card .desc{font-size:12px;color:var(--muted);margin-top:6px}
-    .open-btn{margin-top:18px;width:100%;padding:14px;border-radius:12px;border:none;
+    .open-btn{flex:1 1 0;min-width:0;padding:13px;border-radius:12px;border:none;
       background:linear-gradient(90deg,var(--accent),var(--accent-2));color:#fff;
-      font-size:16px;font-weight:600;cursor:pointer}
+      font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s}
     .open-btn:disabled{opacity:.5;cursor:not-allowed}
+    .seed-edit{display:flex;flex-direction:column;gap:6px}
+    .seed-input{width:100%;background:var(--panel-2);
+      border:1px solid var(--border);border-radius:10px;padding:11px 12px;color:var(--text);
+      font-size:13px;font-family:inherit;box-sizing:border-box}
+    .seed-input:focus{outline:none;border-color:var(--accent)}
+    .seed-lock-note{font-size:12px;color:var(--accent-2)}
+    /* 开盒操作控制台：与模式网格同宽，统一卡片式容器 */
+    .control-card{margin-top:18px;background:var(--panel);border:1px solid var(--border);
+      border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:14px}
+    .action-row{display:flex;gap:12px;align-items:stretch}
+    .batch-group{flex:1 1 0;min-width:0;display:flex;align-items:center;gap:8px;
+      background:var(--panel-2);border:1px solid var(--border);border-radius:12px;padding:6px 8px}
+    .batch-label{font-size:13px;color:var(--muted);white-space:nowrap;padding:0 2px}
+    .batch-count{flex:0 0 auto;height:38px;width:72px;background:var(--panel);border:1px solid var(--border);
+      border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;padding:0 8px;cursor:pointer}
+    .batch-count:focus{outline:none;border-color:var(--accent)}
+    .batch-btn{flex:1 1 auto;min-width:0;height:38px;padding:0 16px;font-size:14px;white-space:nowrap}
+    .batch-btn:disabled{opacity:.5;cursor:not-allowed}
+    .batch-cancel{flex:0 0 auto;background:var(--danger);border-color:var(--danger);color:#fff}
+    .task-progress{margin-top:18px}
+    .task-bar-track{background:var(--panel-2);border:1px solid var(--border);border-radius:999px;height:10px;overflow:hidden}
+    .task-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2));border-radius:999px;transition:width .5s ease}
+    .task-status{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--text);margin-top:8px}
+    .batch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:14px}
+    .batch-card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px}
+    .batch-head{font-size:13px;font-weight:600;color:var(--accent);margin-bottom:4px}
+    .batch-links{display:flex;gap:6px;flex-wrap:wrap}
     .result{margin-top:22px;background:var(--panel);border:1px solid var(--border);
       border-radius:12px;padding:18px}
     .result h3{margin:0 0 8px;font-size:14px;color:var(--accent)}
@@ -80,6 +107,52 @@
     .hist-snippet{color:var(--muted);font-size:13px;margin-top:6px;
       white-space:pre-wrap;line-height:1.5;overflow:hidden;
       display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-clamp:2}
+    .hist-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .hist-filters .seed-input{width:auto;margin:0}
+    .fav-filter{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--muted);cursor:pointer}
+    .fav-filter input{width:auto}
+    .fav-toggle{cursor:pointer;font-size:16px;color:var(--muted);user-select:none;padding:0 2px}
+    .fav-toggle.fav-on{color:#f5c542}
+    .stats-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+    .stat-card{background:var(--panel);border:1px solid var(--border);border-radius:12px;
+      padding:14px;text-align:center}
+    .stat-num{font-size:22px;font-weight:700;color:var(--accent)}
+    .stat-label{font-size:12px;color:var(--muted);margin-top:4px}
+    .stat-bars{display:flex;flex-direction:column;gap:8px}
+    .stat-bar-row{display:flex;align-items:center;gap:8px;font-size:13px}
+    .stat-bar-label{flex:0 0 auto;min-width:90px;color:var(--text);white-space:nowrap;
+      overflow:hidden;text-overflow:ellipsis}
+    .stat-bar-track{flex:1;background:var(--panel-2);border-radius:6px;height:14px;overflow:hidden}
+    .stat-bar-fill{height:100%;background:var(--accent);border-radius:6px;min-width:2px;transition:width .4s ease}
+    .stat-bar-fill.fill-alt{background:var(--accent-2)}
+    .stat-bar-num{flex:0 0 auto;min-width:28px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+    @media (max-width:640px){
+      .app{padding:14px 12px 48px}
+      header.topbar h1{font-size:18px}
+      .tabs{gap:4px}
+      .tab{padding:5px 10px;font-size:13px}
+      .mode-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px}
+      .mode-card{padding:10px 8px}
+      .mode-card .name{font-size:14px}
+      .config-form{padding:12px}
+      .hist-head{flex-wrap:wrap;gap:6px}
+      .hist-kind{margin-left:0}
+      .stats-cards{grid-template-columns:repeat(2,1fr)}
+      .stat-bar-label{min-width:70px;font-size:12px}
+      .archive-links{gap:8px;font-size:12px}
+      .banner{font-size:11px}
+      /* 窄屏：操作区控件纵向排列，避免挤压 */
+      .control-card{padding:14px}
+      .action-row{flex-wrap:wrap}
+      .open-btn{flex:1 1 100%}
+      .batch-group{flex:1 1 100%}
+      .batch-count{flex:0 0 72px}
+      .batch-btn{flex:1 1 auto}
+    }
+    @media (max-width:380px){
+      .mode-grid{grid-template-columns:repeat(2,1fr)}
+      .tab{padding:5px 8px;font-size:12px}
+    }
   </style>
 </head>
 <body>
@@ -100,6 +173,46 @@
     const { h, render } = preact;
     const { useState, useEffect, useRef } = preactHooks;
     const html = htm.bind(h);
+
+    // ---- 全局兜底：捕获未被错误边界兜住的运行时错误，在页面顶部显示可读信息，
+    // 避免「点击配置后整页变黑、什么也不显示」却无从排查。 ----
+    function showFatal(msg) {
+      let el = document.getElementById("__fatal");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "__fatal";
+        el.style.cssText =
+          "position:fixed;left:0;right:0;top:0;z-index:99999;background:#2a0d0d;color:#ff8a8a;" +
+          "font:13px/1.6 ui-monospace,Menlo,monospace;padding:14px 18px;white-space:pre-wrap;" +
+          "word-break:break-word;border-bottom:1px solid #ff5c5c;max-height:50vh;overflow:auto;";
+        document.body.appendChild(el);
+      }
+      el.textContent = "⚠️ 运行时错误：\n" + msg;
+    }
+    window.addEventListener("error", (e) => showFatal((e.error && e.error.stack) || e.message || String(e)));
+    window.addEventListener("unhandledrejection", (e) =>
+      showFatal("Unhandled Promise: " + ((e.reason && (e.reason.stack || e.reason.message)) || e.reason))
+    );
+
+    // ---- 错误边界：捕获子树渲染/effect 异常，避免整棵 preact 树被卸载导致整页变黑 ----
+    class ErrorBoundary extends preact.Component {
+      constructor(props) { super(props); this.state = { error: null }; }
+      componentDidCatch(error, info) {
+        console.error("[demo ErrorBoundary] 捕获到渲染异常:", error, info);
+      }
+      render(props, state) {
+        if (state.error) {
+          const e = state.error;
+          return html`<div style=${{ padding: "24px", color: "#ff8a8a", fontFamily: "ui-monospace, Menlo, monospace", whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "13px", lineHeight: "1.7" }}>
+            <h2 style=${{ color: "#ff5c5c", marginTop: "0" }}>⚠️ 页面渲染出错（已被错误边界捕获，未导致整页崩溃）</h2>
+            <div style=${{ marginBottom: "10px" }}>${String(e && e.message ? e.message : e)}</div>
+            ${e && e.stack ? html`<div style=${{ opacity: "0.75", borderTop: "1px solid #444", paddingTop: "10px" }}>${e.stack}</div>` : null}
+            <div style=${{ marginTop: "14px", opacity: "0.7" }}>请按 F12 打开控制台复制完整报错，或把上方红字反馈给开发者。</div>
+          </div>`;
+        }
+        return props.children;
+      }
+    }
 
     // ---- 沙箱 iframe 高度自适应 ----
     // quiz/game 的 iframe 使用 sandbox="allow-scripts"（不含 allow-same-origin）以保留 origin 隔离，
@@ -129,6 +242,7 @@
       const [loading, setLoading] = useState(false);
       const [result, setResult] = useState(null);
       const [error, setError] = useState(null);
+      const [customSeed, setCustomSeed] = useState("");
       const [config, setConfig] = useState(null);
       const [paths, setPaths] = useState({});
       const [saved, setSaved] = useState(false);
@@ -139,6 +253,56 @@
       const [histLoading, setHistLoading] = useState(false);
       const [histError, setHistError] = useState(null);
       const [expandedId, setExpandedId] = useState(null);
+      // 异步开盒任务进度
+      const [task, setTask] = useState(null);      // {task_id, stage_label, progress, elapsed}
+      const pollRef = useRef(null);                 // 轮询定时器句柄
+      // 批量开盒
+      const [batchCount, setBatchCount] = useState(3);
+      const [batchTasks, setBatchTasks] = useState([]);  // [{task_id, status, stage_label, progress, elapsed, result}]
+      const [batchError, setBatchError] = useState(null);
+      const batchPollRef = useRef(null);
+      // 历史搜索 / 筛选
+      const [histQuery, setHistQuery] = useState("");
+      const [histModeFilter, setHistModeFilter] = useState("");
+      const [histFavOnly, setHistFavOnly] = useState(false);
+      // 统计
+      const [stats, setStats] = useState(null);
+      const [statsLoading, setStatsLoading] = useState(false);
+      // token 单价（来自配置，用于成本估算）
+      const [tokensPrice, setTokensPrice] = useState(0);
+      // 自定义模式
+      const [showNewMode, setShowNewMode] = useState(false);
+      const [newMode, setNewMode] = useState({});
+      const [newModeErr, setNewModeErr] = useState(null);
+      const VALID_EXECUTOR_TYPES = ["text","image","video","tts","game","quiz","character_card","code-spec","code-cli","illustrated_story","video_storyboard","song"];
+      const VALID_OUTPUT_HANDLERS = ["text","image_url","video_file","audio_file","spec_md","game_html","quiz_html","character_card","image_strip","song"];
+      const addCustomMode = () => {
+        setNewModeErr(null);
+        const m = newMode || {};
+        const id = (m.id || "").trim();
+        const name = (m.name || "").trim();
+        if (!id) { setNewModeErr("模式 id 不能为空"); return; }
+        if (!/^[a-z][a-z0-9-]*$/.test(id)) { setNewModeErr("id 只能包含小写字母、数字与中划线，且以字母开头"); return; }
+        if (!name) { setNewModeErr("模式名称不能为空"); return; }
+        const etype = m.executor_type || "text";
+        if (!VALID_EXECUTOR_TYPES.includes(etype)) { setNewModeErr("executor_type 不在合法枚举内"); return; }
+        const oh = m.output_handler || "text";
+        if (!VALID_OUTPUT_HANDLERS.includes(oh)) { setNewModeErr("output_handler 不在合法枚举内"); return; }
+        if ((config.modes || []).some(x => x.id === id)) { setNewModeErr("该 id 已存在，请换一个"); return; }
+        const newModeObj = {
+          id, name,
+          executor_type: etype,
+          output_handler: oh,
+          creative_prompt: (m.creative_prompt || "").trim(),
+          planner_template: (m.planner_template || "").trim(),
+        };
+        // 加入配置并在开盲盒页选中
+        update("modes", [...(config.modes || []), newModeObj]);
+        setSelected(id);
+        setShowNewMode(false);
+        setNewMode({});
+        setSaved(false);
+      };
 
       useEffect(() => {
         fetch("/api/modes").then(r => r.json()).then(d => {
@@ -148,6 +312,7 @@
         fetch("/api/config").then(r => r.json()).then(d => {
           setConfig(d.config); setPaths(d.paths || {});
           if (initialPoolRef.current === null) initialPoolRef.current = d.config?.randomness?.pool || {};
+          setTokensPrice(Number(d.config?.global?.tokens_price) || 0);
         }).catch(() => {});
         // Load available TTS voices
         fetch("/api/tts/voices").then(r => r.json()).then(d => {
@@ -158,33 +323,136 @@
       const runOpen = async (modeId, seed) => {
         const m = modeId || selected;
         if (!m) return;
-        setLoading(true); setError(null);
-        const ctrl = new AbortController();
-        // 兜底超时 9分40秒（略小于代理层的 10 分钟），避免极端情况下请求永久挂起
-        const timer = setTimeout(() => ctrl.abort(), 720000);
+        // 自定义种子优先于历史 seed（「用此 seed 重抽」时种子来自历史，仍可被手动输入覆盖）
+        const finalSeed = (customSeed || "").trim() || seed;
+        setLoading(true); setError(null); setResult(null); setTask(null);
+
+        // 1) 创建异步任务，立即拿到 task_id
+        let resp;
         try {
-          const resp = await fetch("/api/open", {
+          resp = await fetch("/api/open", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(seed ? { mode: m, seed } : { mode: m }),
-            signal: ctrl.signal,
+            body: JSON.stringify(finalSeed ? { mode: m, seed: finalSeed } : { mode: m }),
           });
-          const data = await resp.json();
-          if (!resp.ok) throw new Error(data.detail || "开盲盒失败");
-          setResult(data);
         } catch (e) {
-          if (e.name === "AbortError") {
-            setError("请求超时：生成任务耗时较长（漫画/视频等复杂内容需要较长时间），请稍后重试。");
-          } else if (e.message === "Failed to fetch") {
-            setError("与服务器连接中断（长连接可能被网络/代理重置）。请确认前后端服务正常后重试。");
-          } else {
-            setError("开盲盒失败: " + e.message);
-          }
-        } finally {
-          clearTimeout(timer);
           setLoading(false);
+          setError(e.message === "Failed to fetch"
+            ? "与服务器连接中断。请确认前后端服务正常后重试。"
+            : "创建任务失败: " + e.message);
+          return;
         }
+        let data;
+        try { data = await resp.json(); } catch (e) { data = {}; }
+        if (!resp.ok) { setLoading(false); setError((data && data.detail) || "开盲盒失败"); return; }
+        const taskId = data && data.task_id;
+        if (!taskId) { setLoading(false); setError("服务未返回 task_id，请检查后端版本"); return; }
+
+        // 2) 轮询 GET /api/task/{id}，更新进度；完成后展示结果
+        const poll = async () => {
+          let t;
+          try {
+            const r = await fetch("/api/task/" + taskId);
+            t = await r.json();
+            if (!r.ok) throw new Error((t && t.detail) || "查询任务失败");
+          } catch (e) {
+            clearInterval(pollRef.current); pollRef.current = null;
+            setLoading(false); setTask(null);
+            setError("查询任务失败: " + e.message);
+            return;
+          }
+          setTask({ task_id: taskId, stage_label: t.stage_label, progress: t.progress, elapsed: t.elapsed });
+          if (t.status === "done") {
+            clearInterval(pollRef.current); pollRef.current = null;
+            setLoading(false); setTask(null);
+            if (t.result) setResult(t.result);
+            else setError("任务完成但结果为空");
+          } else if (t.status === "cancelled") {
+            clearInterval(pollRef.current); pollRef.current = null;
+            setLoading(false); setTask(null);
+            setError("任务已取消。");
+          } else if (t.status === "error") {
+            clearInterval(pollRef.current); pollRef.current = null;
+            setLoading(false); setTask(null);
+            setError("开盲盒失败: " + (t.error || "未知错误"));
+          }
+        };
+        await poll();
+        if (!pollRef.current) pollRef.current = setInterval(poll, 1200);
+      };
+
+      const cancelTask = async () => {
+        const tid = task && task.task_id;
+        if (!tid) return;
+        try {
+          await fetch("/api/task/" + tid + "/cancel", { method: "POST" });
+        } catch (e) { /* 忽略网络错误，轮询会兜底 */ }
       };
       const openBox = () => runOpen(selected);
+
+      // ---- 批量开盒：一次创建 N 个异步任务，并排展示进度与结果 ----
+      const cancelBatch = async () => {
+        if (batchPollRef.current) { clearInterval(batchPollRef.current); batchPollRef.current = null; }
+        for (const t of batchTasks) {
+          try { await fetch("/api/task/" + t.task_id + "/cancel", { method: "POST" }); } catch (e) {}
+        }
+      };
+      const runBatchOpen = async () => {
+        const m = selected;
+        if (!m) return;
+        const finalSeed = (customSeed || "").trim();
+        setLoading(true); setError(null); setBatchError(null); setResult(null);
+        if (batchPollRef.current) { clearInterval(batchPollRef.current); batchPollRef.current = null; }
+        // 1) 创建批量任务
+        let resp, data;
+        try {
+          resp = await fetch("/api/open-batch", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(finalSeed ? { mode: m, count: batchCount, seed: finalSeed } : { mode: m, count: batchCount }),
+          });
+          data = await resp.json();
+        } catch (e) {
+          setLoading(false);
+          setBatchError("创建批量任务失败: " + e.message);
+          return;
+        }
+        if (!resp.ok) { setLoading(false); setBatchError((data && data.detail) || "批量开盲盒失败"); return; }
+        const tasks = (data.tasks || []).map(t => ({
+          task_id: t.task_id, status: "running", stage_label: "排队中", progress: 0, elapsed: 0, result: null,
+        }));
+        setBatchTasks(tasks);
+        // 2) 统一轮询全部任务
+        const pollAll = async () => {
+          const next = [];
+          let allDone = true;
+          for (const t of tasks) {
+            let cur;
+            try {
+              const r = await fetch("/api/task/" + t.task_id);
+              cur = await r.json();
+            } catch (e) { cur = null; }
+            if (cur && cur.status) {
+              next.push({ ...t, status: cur.status, stage_label: cur.stage_label, progress: cur.progress, elapsed: cur.elapsed, result: cur.result, error: cur.error });
+              if (cur.status !== "done" && cur.status !== "error" && cur.status !== "cancelled") allDone = false;
+            } else {
+              next.push(t);
+              allDone = false;
+            }
+          }
+          setBatchTasks(next);
+          if (allDone) {
+            if (batchPollRef.current) { clearInterval(batchPollRef.current); batchPollRef.current = null; }
+            setLoading(false);
+            const anyDone = next.some(t => t.status === "done" && t.result);
+            if (!anyDone) {
+              const errs = next.filter(t => t.error).map(t => t.error).join("；");
+              setBatchError("批量任务均未成功: " + (errs || "未知"));
+            }
+          }
+        };
+        setLoading(true);
+        await pollAll();
+        if (!batchPollRef.current) batchPollRef.current = setInterval(pollAll, 1200);
+      };
 
       // 已下线模式的兜底名称（历史记录仍显示可读名）
       const LEGACY_MODE_NAMES = { novella: "中篇播客（已合并）", longpod: "长播客（已合并）" };
@@ -254,12 +522,52 @@
       const loadHistory = async () => {
         setHistLoading(true); setHistError(null);
         try {
-          const resp = await fetch("/api/history?limit=100");
+          const params = new URLSearchParams({ limit: "200" });
+          if (histQuery.trim()) params.set("q", histQuery.trim());
+          if (histModeFilter) params.set("mode", histModeFilter);
+          const resp = await fetch("/api/history?" + params.toString());
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.detail || "加载历史失败");
-          setHistory(data.items || []);
+          const items = data.items || [];
+          setHistory(histFavOnly ? items.filter(x => x.favorite) : items);
         } catch (e) { setHistError("加载历史失败: " + e.message); }
         finally { setHistLoading(false); }
+      };
+
+      const toggleFavorite = async (rid, fav) => {
+        try {
+          const resp = await fetch("/api/history/" + rid + "/favorite", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ favorite: fav }),
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || "更新收藏失败");
+          setHistory(prev => prev.map(x => x.id === rid ? { ...x, favorite: fav } : x));
+          if (histFavOnly && !fav) setHistory(prev => prev.filter(x => x.id !== rid));
+        } catch (e) { setHistError("更新收藏失败: " + e.message); }
+      };
+
+      const rateItem = async (rid, rating) => {
+        try {
+          const resp = await fetch("/api/history/" + rid + "/rating", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rating }),
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || "评分失败");
+          setHistory(prev => prev.map(x => x.id === rid ? { ...x, rating } : x));
+        } catch (e) { setHistError("评分失败: " + e.message); }
+      };
+
+      const loadStats = async () => {
+        setStatsLoading(true);
+        try {
+          const resp = await fetch("/api/stats");
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || "加载统计失败");
+          setStats(data);
+        } catch (e) { setError("加载统计失败: " + e.message); }
+        finally { setStatsLoading(false); }
       };
 
       const save = async () => {
@@ -623,11 +931,13 @@
             <div class="tabs">
               <div class=${"tab " + (tab === "box" ? "active" : "")} onClick=${() => setTab("box")}>开盲盒</div>
               <div class=${"tab " + (tab === "history" ? "active" : "")} onClick=${() => { setTab("history"); loadHistory(); }}>历史</div>
+              <div class=${"tab " + (tab === "stats" ? "active" : "")} onClick=${() => { setTab("stats"); loadStats(); }}>统计</div>
               <div class=${"tab " + (tab === "config" ? "active" : "")} onClick=${() => setTab("config")}>配置</div>
             </div>
           </header>
           <div class="banner">免构建演示页：用 preact + htm（已打包到本地 frontend/vendor，无需联网），无需 npm install。生产版请用 Vite 工程（npm install 后 npm run dev）。</div>
 
+          <${ErrorBoundary}>
           ${tab === "box" && html`
             <div class="section-title">选择模式</div>
             <div class="mode-grid">
@@ -638,10 +948,65 @@
                   <div class="desc">${m.executor_type}</div>
                 </div>`)}
             </div>
-            <button class="open-btn" disabled=${loading || !selected} onClick=${openBox}>
-              ${loading ? "开启中…" : "🎁 开启盲盒"}
-            </button>
+            <div class="control-card">
+              <div class="seed-edit">
+                <input
+                  class="seed-input"
+                  value=${customSeed}
+                  placeholder="自定义种子（可选）：手写灵感词，锁定开盒方向，如「赛博茶馆 雨天」"
+                  onInput=${(e) => setCustomSeed(e.target.value)}
+                />
+                ${customSeed ? html`<div class="seed-lock-note">已锁定种子：${customSeed}（留空则随机抽取）</div>` : ""}
+              </div>
+              <div class="action-row">
+                <button class="open-btn" disabled=${loading || !selected} onClick=${openBox}>
+                  ${loading ? "⏳ 开启中…" : "🎁 开启盲盒"}
+                </button>
+                <div class="batch-group">
+                  <span class="batch-label">连开</span>
+                  <select class="batch-count" value=${batchCount}
+                    title="连开数量"
+                    onChange=${(e) => setBatchCount(Number(e.target.value))}>
+                    ${[2, 3, 4, 5, 6].map(n => html`<option value=${n}>${n} 个</option>`)}
+                  </select>
+                  <button class="save-btn batch-btn" disabled=${loading || !selected} onClick=${runBatchOpen}>
+                    ${batchTasks.length > 0 && batchTasks.some(t => t.status === "running") ? "连开中…" : "🎁 连开盲盒"}
+                  </button>
+                  ${batchTasks.length > 0 && batchTasks.some(t => t.status === "running") && html`
+                    <button class="save-btn batch-btn batch-cancel" onClick=${cancelBatch}>取消全部</button>`}
+                </div>
+              </div>
+            </div>
+            ${loading && task && html`
+              <div class="task-progress">
+                <div class="task-bar-track"><div class="task-bar-fill" style=${{width: Math.round((task.progress || 0) * 100) + "%"}} /></div>
+                <div class="task-status">
+                  <span>${task.stage_label || "处理中"}</span>
+                  <span style=${{color:"var(--muted)"}}>${task.elapsed >= 1 ? "已等待 " + Math.floor(task.elapsed) + "s" : ""}</span>
+                </div>
+                <button class="save-btn" style=${{padding:"6px 14px",background:"var(--danger)",borderColor:"var(--danger)",marginTop:6}} onClick=${cancelTask}>取消</button>
+              </div>`}
             ${error && html`<div class="error">${error}</div>`}
+            ${batchError && html`<div class="error">${batchError}</div>`}
+            ${batchTasks.length > 0 && html`
+              <div class="batch-grid">
+                ${batchTasks.map((bt, idx) => html`
+                  <div class="batch-card" key=${bt.task_id}>
+                    <div class="batch-head">#${idx + 1} ${bt.status === "done" ? "✓" : bt.status === "error" ? "✗" : bt.status === "cancelled" ? "✕" : "…"}</div>
+                    ${bt.status === "done" && bt.result ? html`
+                      <div class="seed-pill" style=${{ fontSize: 11, marginBottom: 6 }}>seed: ${bt.result.seed || "（无）"}</div>
+                      <div class="concept" style=${{ fontSize: 12 }}>${(bt.result.concept || "").slice(0, 120)}${(bt.result.concept || "").length > 120 ? "…" : ""}</div>
+                      <div class="batch-links">
+                        <button class="save-btn" style=${{ padding: "4px 10px", fontSize: 12, marginTop: 8 }}
+                          onClick=${() => setResult(bt.result)}>查看</button>
+                        <button class="save-btn" style=${{ padding: "4px 10px", fontSize: 12, marginTop: 8, background: "transparent", color: "var(--muted)" }}
+                          onClick=${() => { setSelected(m); runOpen(bt.result.mode, bt.result.seed); }}>同种子重开</button>
+                      </div>`
+                      : html`
+                      <div class="task-bar-track" style=${{ marginTop: 6 }}><div class="task-bar-fill" style=${{ width: Math.round((bt.progress || 0) * 100) + "%" }} /></div>
+                      <div class="task-status" style=${{ marginTop: 4, fontSize: 12 }}><span>${bt.stage_label || "处理中"}</span><span style=${{ color: "var(--muted)" }}>${bt.elapsed >= 1 ? Math.floor(bt.elapsed) + "s" : ""}</span></div>`}
+                  </div>`)}
+              </div>`}
             ${result && html`
               <div class="result">
                 <div class="seed-pill">seed: ${result.seed}</div>
@@ -744,6 +1109,15 @@
                     </div>`;
                 })()}
                 ${result.model_used ? html`<div class="model-hint">由 ${result.model_used} 生成</div>` : null}
+                ${(() => {
+                  const u = result.usage || null;
+                  const tt = u && Number(u.total_tokens || 0);
+                  const pt = u ? Number(u.prompt_tokens || 0) : 0;
+                  const ct = u ? Number(u.completion_tokens || 0) : 0;
+                  const cost = tokensPrice && (pt || ct) ? ((pt + ct) / 1000.0 * tokensPrice).toFixed(4) : null;
+                  if (!tt && !cost) return null;
+                  return html`<div style=${{marginTop:4,fontSize:12,color:"var(--muted)"}}>${[tt ? tt.toLocaleString() + " tokens" : null, cost ? "约 ¥" + cost : null].filter(Boolean).join(" · ")}</div>`;
+                })()}
                 ${result.archived && html`
                   <div class="archive-box">
                     <span class="archive-badge">✓ 已自动归档</span>
@@ -768,6 +1142,36 @@
           `}
 
           ${tab === "config" && config && html`
+            <div class="section-title">模式管理（自定义模式）</div>
+            <div class="config-form">
+              <div class="note">已有 ${config.modes?.length || 0} 个模式。可在下方新增自定义模式（id 需唯一、executor_type 需在合法枚举内），保存后即可在开盲盒页选择。</div>
+              ${!showNewMode ? html`
+                <button type="button" class="save-btn" onClick=${() => setShowNewMode(true)}>＋ 新建模式</button>`
+                : html`
+                <div class="form-row"><label>模式 id（唯一，英文小写+中划线，如 my-game）</label>
+                  <input value=${newMode.id || ""} onInput=${e => setNewMode(s => ({ ...s, id: e.target.value }))} placeholder="如 my-mode" /></div>
+                <div class="form-row"><label>模式名称 *</label>
+                  <input value=${newMode.name || ""} onInput=${e => setNewMode(s => ({ ...s, name: e.target.value }))} placeholder="如 我的小游戏" /></div>
+                <div class="form-row"><label>执行器类型 executor_type *</label>
+                  <select value=${newMode.executor_type || "text"} onInput=${e => setNewMode(s => ({ ...s, executor_type: e.target.value }))}>
+                    ${VALID_EXECUTOR_TYPES.map(t => html`<option value=${t}>${t}</option>`)}
+                  </select>
+                  <div class="note">text=文本 · image=图片 · video=视频 · tts=播客 · game=小游戏 · quiz=测验 · song=歌曲 · illustrated_story=插画故事 · video_storyboard=视频分镜 · code-spec=代码 spec</div></div>
+                <div class="form-row"><label>成品类型 output_handler</label>
+                  <select value=${newMode.output_handler || "text"} onInput=${e => setNewMode(s => ({ ...s, output_handler: e.target.value }))}>
+                    ${VALID_OUTPUT_HANDLERS.map(t => html`<option value=${t}>${t}</option>`)}
+                  </select></div>
+                <div class="form-row"><label>创意提示词 creative_prompt（可选）</label>
+                  <textarea value=${newMode.creative_prompt || ""} onInput=${e => setNewMode(s => ({ ...s, creative_prompt: e.target.value }))} placeholder="留空则用默认创意 Agent 提示词" /></div>
+                <div class="form-row"><label>规划模板 planner_template（可选）</label>
+                  <textarea value=${newMode.planner_template || ""} onInput=${e => setNewMode(s => ({ ...s, planner_template: e.target.value }))} placeholder="留空则用默认规划模板" /></div>
+                <div style=${{ display: "flex", gap: "8px" }}>
+                  <button type="button" class="save-btn" onClick=${addCustomMode}>添加模式</button>
+                  <button type="button" class="save-btn" style=${{ background: "transparent", color: "var(--muted)" }} onClick=${() => setShowNewMode(false)}>取消</button>
+                </div>
+                ${newModeErr && html`<div class="error">${newModeErr}</div>`}`}
+            </div>
+
             <div class="section-title">全局配置</div>
             <div class="config-form">
               <div class="form-row"><label>
@@ -775,6 +1179,12 @@
               <div class="section-title">随机性</div>
               <div class="form-row"><label>每抽抽取种子数</label>
                 <input type="number" value=${rnd.per_open_draw ?? 2} onInput=${e => update("randomness.per_open_draw", Number(e.target.value))} /></div>
+
+              <div class="section-title">成本估算（Token 追踪）</div>
+              <div class="form-row"><label>每千 token 单价（¥，0 = 不估算成本；历史面板与统计页按此换算）</label>
+                <input type="number" step="0.001" value=${g.tokens_price ?? 0}
+                  onInput=${e => update("global.tokens_price", e.target.value === "" ? 0 : Number(e.target.value))}
+                  placeholder="如 0.01（即每千 token 一分钱）" /></div>
 
               <div class="section-title">随机种子池（twist pool）</div>
               <div class="note">四个维度各维护一组候选词条，每次开盲盒从中抽取。可手动增删改，也可用「🎲 生成」调用大模型补一条（已自动避开重复）。</div>
@@ -865,7 +1275,7 @@
             <div class="config-form">
               <div class="note">无需选择引擎：<b>不填 base_url / api_key</b> → 自动使用免费 Edge TTS；<b>同时填好 base_url / api_key</b> → 走云端大模型（用下方 model 指定模型，任意兼容 OpenAI /audio/speech 的厂商均可）；云端调用出错会自动回退 Edge TTS。</div>
               <div class="form-row"><label>音色 Voice</label>
-                ${picker({ key: "tts-voice", value: tp.voice || "", options: [...voices.edge.map(v => v.id), ...voices.cloud.map(v => v.id)],
+                ${picker({ key: "tts-voice", value: tp.voice || "", options: [...(voices.edge || []).map(v => v && v.id), ...(voices.cloud || []).map(v => v && v.id)].filter(Boolean),
                   onPick: v => update("providers.tts.voice", v),
                   placeholder: "Edge 例: zh-CN-XiaoxiaoNeural · 云端直接手写音色名", emptyLabel: "（留空=默认音色）" })}
                 <div class="note">可从下拉建议中随时改选，也可手写任意音色名</div>
@@ -881,6 +1291,23 @@
 
           ${tab === "history" && html`
             <div class="section-title">历史记录（${history.length} 条）</div>
+            <div class="hist-filters">
+              <input class="seed-input" style=${{ maxWidth: 260 }} placeholder="搜索关键词（concept/plan/output/seed）"
+                value=${histQuery} onInput=${(e) => setHistQuery(e.target.value)}
+                onKeyDown=${(e) => { if (e.key === "Enter") loadHistory(); }} />
+              <button class="save-btn" onClick=${loadHistory}>搜索</button>
+              <select class="seed-input" style=${{ maxWidth: 180 }} value=${histModeFilter}
+                onChange=${(e) => setHistModeFilter(e.target.value)}>
+                <option value="">全部模式</option>
+                ${modes.map(m => html`<option value=${m.id}>${m.name}</option>`)}
+              </select>
+              <label class="fav-filter">
+                <input type="checkbox" checked=${histFavOnly} onChange=${(e) => setHistFavOnly(e.target.checked)} />
+                只看收藏 ★
+              </label>
+              <button class="save-btn" style=${{ background:"transparent", color:"var(--muted)" }}
+                onClick=${() => { setHistQuery(""); setHistModeFilter(""); setHistFavOnly(false); loadHistory(); }}>重置</button>
+            </div>
             ${histLoading && html`<div class="note">加载中…</div>`}
             ${histError && html`<div class="error">${histError}</div>`}
             ${!histLoading && !histError && history.length === 0
@@ -892,6 +1319,9 @@
                     <span class="hist-mode">${modeName(it.mode)}</span>
                     <span class="hist-time">${it.timestamp || ""}</span>
                     <span class="hist-kind">${it.output_kind || ""}</span>
+                    <span class=${"fav-toggle" + (it.favorite ? " fav-on" : "")}
+                      title=${it.favorite ? "取消收藏" : "收藏"}
+                      onClick=${(e) => { e.stopPropagation(); toggleFavorite(it.id, !it.favorite); }}>${it.favorite ? "★" : "☆"}</span>
                   </div>
                   <div class="seed-pill">seed: ${it.seed || "（无）"}</div>
                   ${expandedId === it.id ? html`
@@ -984,11 +1414,30 @@
                                </div>`}
                      `}
                      ${it.model_used ? html`<div class="model-hint">由 ${it.model_used} 生成</div>` : null}
+                     ${(() => {
+                       const u = it.usage || null;
+                       const tt = u && Number(u.total_tokens || 0);
+                       const pt = u ? Number(u.prompt_tokens || 0) : 0;
+                       const ct = u ? Number(u.completion_tokens || 0) : 0;
+                       const cost = tokensPrice && (pt || ct) ? ((pt + ct) / 1000.0 * tokensPrice).toFixed(4) : null;
+                       if (!tt && !cost) return null;
+                       return html`<div style=${{marginTop:4,fontSize:12,color:"var(--muted)"}}>${[tt ? tt.toLocaleString() + " tokens" : null, cost ? "约 ¥" + cost : null].filter(Boolean).join(" · ")}</div>`;
+                     })()}
+                     <div style=${{marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                       <span style=${{fontSize:12,color:"var(--muted)"}}>评分：</span>
+                       ${[1,2,3,4,5].map(n => html`
+                         <button class="save-btn" key=${n}
+                           style=${{padding:"2px 8px",fontSize:12,background:it.rating === n ? "var(--accent)" : "transparent",borderColor:"var(--border)",color:it.rating === n ? "#fff" : "var(--muted)"}}
+                           onClick=${() => rateItem(it.id, it.rating === n ? null : n)}
+                           title=${it.rating === n ? "点击清除评分" : ("评 " + n + " 分")}>${n}</button>`)}
+                       ${it.rating != null && html`<span style=${{fontSize:12,color:"var(--accent-2)"}}>已评 ${it.rating} 分</span>`}
+                     </div>
                     <div class="archive-links">
                       <a href=${outUrl(it.json) || ""} target="_blank" rel="noreferrer">归档 JSON</a>
                       ${it.local_file && html`<a href=${outUrl(it.local_file) || ""} target="_blank" rel="noreferrer">${it.local_file.endsWith(".md") ? "文字成品" : "图片成品"}</a>`}
                       ${it.text_file && it.text_file !== it.local_file && html`<a href=${outUrl(it.text_file) || ""} target="_blank" rel="noreferrer">文字成品</a>`}
                       ${it.image_url && /\.(png|jpe?g|gif|webp)$/i.test(it.image_url) && html`<a href=${outUrl(it.image_url) || ""} target="_blank" rel="noreferrer">图片成品</a>`}
+                      ${it.id && html`<a href=${"/api/export/" + it.id + "/zip"} download>下载 ZIP</a>`}
                     </div>
                     <button class="save-btn" style=${{marginTop:"10px"}}
                       onClick=${() => { setSelected(it.mode); setTab("box"); runOpen(it.mode, it.seed); }}>用此 seed 重抽</button>
@@ -998,6 +1447,45 @@
             ${history.length > 0 && html`
               <button class="save-btn" style=${{marginTop:"12px",background:"transparent",color:"var(--muted)"}} onClick=${loadHistory}>↻ 刷新</button>`}
           `}
+
+          ${tab === "stats" && html`
+            <div class="section-title">开盒统计</div>
+            ${statsLoading && html`<div class="note">统计中…</div>`}
+            ${stats ? html`
+              <div class="stats-wrap">
+                <div class="stats-cards">
+                  <div class="stat-card"><div class="stat-num">${stats.total}</div><div class="stat-label">总开盒</div></div>
+                  <div class="stat-card"><div class="stat-num">${Math.round(stats.success_rate * 100)}%</div><div class="stat-label">成功率</div></div>
+                  <div class="stat-card"><div class="stat-num">${stats.favorites}</div><div class="stat-label">收藏</div></div>
+                  <div class="stat-card"><div class="stat-num">${stats.avg_rating ?? "—"}</div><div class="stat-label">平均评分</div></div>
+                </div>
+                <div class="section-title">模式分布</div>
+                <div class="stat-bars">
+                  ${Object.entries(stats.by_mode || {}).map(([k, v]) => html`
+                    <div class="stat-bar-row" key=${k}>
+                      <span class="stat-bar-label">${modeName(k)}</span>
+                      <div class="stat-bar-track"><div class="stat-bar-fill" style=${{width:(stats.total ? (v / stats.total) * 100 : 0) + "%"}} /></div>
+                      <span class="stat-bar-num">${v}</span>
+                    </div>`)}
+                </div>
+                <div class="section-title">模型使用（Top 8）</div>
+                <div class="stat-bars">
+                  ${Object.entries(stats.by_model || {}).slice(0, 8).map(([k, v]) => html`
+                    <div class="stat-bar-row" key=${k}>
+                      <span class="stat-bar-label" style=${{maxWidth:"45%"}}>${k}</span>
+                      <div class="stat-bar-track"><div class="stat-bar-fill fill-alt" style=${{width:(stats.total ? (v / stats.total) * 100 : 0) + "%"}} /></div>
+                      <span class="stat-bar-num">${v}</span>
+                    </div>`)}
+                </div>
+                <div class="section-title">Token 用量</div>
+                <div class="stats-cards">
+                  <div class="stat-card"><div class="stat-num">${(stats.token_total?.total_tokens || 0).toLocaleString()}</div><div class="stat-label">累计 tokens</div></div>
+                  ${stats.cost_total > 0 && html`
+                    <div class="stat-card"><div class="stat-num">¥${stats.cost_total}</div><div class="stat-label">预估成本（¥${stats.tokens_price}/千token）</div></div>`}
+                </div>
+              </div>` : (!statsLoading && html`<div class="note">暂无统计数据。</div>`)}
+          `}
+          <//>
         </div>
       `;
     }

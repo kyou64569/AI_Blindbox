@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import socket
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -57,6 +58,35 @@ def health_check(port: int) -> bool:
         return False
 
 
+def detect_node() -> "str | None":
+    """查找 node 可执行文件：优先 PATH，其次常见安装路径。"""
+    p = shutil.which("node")
+    if p:
+        return p
+    for cand in (
+        r"C:\Program Files\nodejs\node.exe",
+        r"C:\Users\asus\.workbuddy\binaries\node\versions\22.22.2\node.exe",
+    ):
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+def frontend_cmd(fe_port: int, dev_mode: bool) -> list:
+    """返回启动前端的命令列表。
+
+    dev_mode 且 node 与 frontend/node_modules/vite 就绪时走 Vite（工程版，HMR）；
+    否则回退 serve.py（免构建 demo.html）。与 start_all.sh 的 DEV_MODE 行为对齐。
+    """
+    if dev_mode:
+        node = detect_node()
+        vite_dir = FRONTEND_DIR / "node_modules" / "vite"
+        if node and vite_dir.is_dir():
+            return [node, "node_modules/vite/bin/vite.js", "--port", str(fe_port)]
+        log("DEV_MODE=1 但未找到 node 或 frontend/node_modules/vite，回退 serve.py (demo.html)")
+    return [str(VENV_PY), "serve.py"]
+
+
 def main() -> None:
     log("=" * 50)
     log("  AI Blind Box Launcher")
@@ -68,6 +98,11 @@ def main() -> None:
         log("Please create venv and install deps (see README).")
         input("Press Enter to exit...")
         sys.exit(1)
+
+    # 开发模式：DEV_MODE=1 且 node+vite 就绪时前端走 Vite（工程版），否则 serve.py
+    dev_mode = os.environ.get("DEV_MODE", "") == "1"
+    if dev_mode:
+        log("DEV_MODE=1: 前端将尝试用 Vite 实时编译 src/（HMR）")
 
     # 动态分配端口（被占用自动 +1 更换，不杀占用进程）
     be_port = find_free_port(BE_PORT_DEFAULT)
@@ -103,7 +138,7 @@ def main() -> None:
     fe_env["BLINDBOX_BE_URL"] = f"http://127.0.0.1:{be_port}"
     fe_fh = open(frontend_log, "wb")
     fe_proc = subprocess.Popen(
-        [str(VENV_PY), "serve.py"],
+        frontend_cmd(fe_port, dev_mode),
         cwd=str(FRONTEND_DIR),
         stdout=fe_fh,
         stderr=subprocess.STDOUT,
@@ -191,7 +226,7 @@ def main() -> None:
                     pass
                 fe_fh = open(frontend_log, "ab")
                 fe_proc = subprocess.Popen(
-                    [str(VENV_PY), "serve.py"],
+                    frontend_cmd(fe_port, dev_mode),
                     cwd=str(FRONTEND_DIR),
                     stdout=fe_fh,
                     stderr=subprocess.STDOUT,
