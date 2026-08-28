@@ -201,8 +201,9 @@ modes:
   planner_template: 'Output strictly one field per line: Name | Appearance | Personality
     | Backstory | Catchphrase | Hidden Trait. Separate content with | after the field
     name. No numbering, no explanation.'
-  executor_type: text
-  output_handler: text
+  executor_type: character_card
+  output_handler: character_card
+  size: 1024x1024
 - id: naming
   name: 起名
   creative_prompt: Create a set of creative, memorable names (for projects/characters/places/items).

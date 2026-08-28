@@ -124,8 +124,8 @@ def test_stats_cache_structure():
     """测试缓存变量的初始化。"""
     assert hasattr(main, '_stats_cache')
     assert hasattr(main, '_stats_cache_time')
-    assert hasattr(main, '_stats_cache_ttl')
-    assert main._stats_cache_ttl == 60
+    assert hasattr(main, '_STATS_CACHE_TTL')
+    assert main._STATS_CACHE_TTL == 60
 
 
 if __name__ == "__main__":

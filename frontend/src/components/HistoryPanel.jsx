@@ -72,6 +72,133 @@ function specCostCard(item) {
   return rows.length ? rows : null;
 }
 
+// 成品渲染：按 output_kind 分发（从原 JSX 内联 IIFE 提取，消除括号陷阱）
+function parseCharFields(text) {
+  if (!text) return [];
+  const fields = [];
+  const re = /^([A-Za-z][A-Za-z ]*):\s*(.+)$/gm;
+  let m;
+  while ((m = re.exec(text))) {
+    const key = m[1].trim();
+    const val = m[2].trim();
+    if (key && val) fields.push({ label: key, value: val });
+  }
+  return fields;
+}
+
+function renderOutput(it) {
+  if (it.output_kind === "character_card") {
+    return (
+      <div
+        style={{
+          margin: "8px auto 0",
+          background: "var(--panel-2, #1f232c)",
+          border: "1px solid var(--border, #2a2f3a)",
+          borderRadius: 14,
+          overflow: "hidden",
+          maxWidth: 480,
+          width: "100%",
+        }}
+      >
+        {it.image_url && (
+          <div style={{ width: "100%", paddingTop: "100%", position: "relative", background: "#0b1220" }}>
+            <img
+              src={mediaSrc(it.local_file, it.image_url) || ""}
+              alt="avatar"
+              style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          </div>
+        )}
+        <div style={{ padding: "14px 16px" }}>
+          {parseCharFields(it.output).map((f, i) => (
+            <div key={i} style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: "var(--accent, #7f77dd)", fontWeight: 600, letterSpacing: 0.5 }}>
+                {f.label}
+              </div>
+              <div style={{ fontSize: 14, color: "var(--text, #e6e8ec)", lineHeight: 1.5, marginTop: 2 }}>
+                {f.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (it.output_kind === "image_strip") {
+    let pages = [];
+    try {
+      const parsed = JSON.parse(it.output || "{}");
+      if (Array.isArray(parsed.pages)) pages = parsed.pages;
+    } catch (e) {
+      console.error("[HistoryPanel] Failed to parse image_strip JSON:", e);
+    }
+    if (pages.length === 0) return <div className="plan">（插画故事 · 共 0 页）</div>;
+    return (
+      <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>
+        {pages.map((p, i) => (
+          <div key={i} style={{ flex: "0 0 auto", width: "60%", maxWidth: 280, borderRadius: 8, overflow: "hidden", background: "#0b1220" }}>
+            {mediaSrc(p?.local, p?.url)
+              ? <img src={mediaSrc(p.local, p.url)} alt={`p${i + 1}`} style={{ width: "100%", display: "block" }} />
+              : <div style={{ padding: 20, color: "#888", textAlign: "center", fontSize: 12 }}>第 {i + 1} 页（未生成）</div>}
+            <div style={{ padding: "4px 8px", fontSize: 10, color: "#888", background: "#1f232c" }}>第 {i + 1} / {pages.length} 页</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (it.output_kind === "song") {
+    let lyrics = "";
+    try {
+      const p = JSON.parse(it.output || "{}");
+      lyrics = p.lyrics || "";
+    } catch (e) {
+      console.error("[HistoryPanel] Failed to parse song JSON:", e);
+    }
+    return <div className="concept" style={{ whiteSpace: "pre-wrap", fontFamily: '"PingFang SC","Microsoft YaHei",serif', lineHeight: 1.8 }}>{lyrics || "（歌词为空）"}</div>;
+  }
+  if (it.output_kind === "game_html" || it.output_kind === "quiz_html") {
+    return (
+      <SandboxedHtmlFrame
+        src={mediaSrc(it.local_file, it.output)}
+        isQuiz={it.output_kind === "quiz_html"}
+        fallback={it.output}
+      />
+    );
+  }
+  if (it.output_kind === "video_file") {
+    return (
+      <video
+        src={mediaSrc(it.local_file, it.output) || ""}
+        controls
+        style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8 }}
+      />
+    );
+  }
+  // image_url 及其余：recipe / tarot / character 上图下文，其他普通图
+  if (["recipe", "tarot", "character"].includes(it.mode)) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 8 }}>
+        <img src={mediaSrc(it.local_file, it.output) || ""} alt="result" style={{ maxWidth: "480px", width: "100%", height: "auto", objectFit: "contain", borderRadius: "12px", display: "block", background: "var(--panel-2)" }} />
+        {it.caption ? (
+          <div style={{ maxWidth: "480px", width: "100%", marginTop: 10, padding: "12px 14px", boxSizing: "border-box", background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: "12px", color: "var(--text)", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word", textAlign: "left" }}>
+            {it.caption}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
+      <img src={mediaSrc(it.local_file, it.output) || ""} alt="result" style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8, display: "block" }} />
+      {it.caption ? (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, marginTop: 8, padding: "10px 12px", borderRadius: "0 0 12px 12px", color: "#fff", background: "linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))", fontSize: 20, fontWeight: 700, textAlign: "center", textShadow: "0 1px 3px rgba(0,0,0,0.5)" }}>
+          {it.caption}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function HistoryPanel({
   history,
   loading,
@@ -131,6 +258,8 @@ export default function HistoryPanel({
                 <>
                   <h3>概念卡</h3>
                   <div className="concept">{it.concept || ""}</div>
+                  <h3>规划输出（规划 Agent）</h3>
+                  <div className="plan">{it.plan || "（无规划输出）"}</div>
                   <h3>成品</h3>
                   {it.output_kind === "text" && (
                     <div className="concept">{it.output || ""}</div>
@@ -143,76 +272,7 @@ export default function HistoryPanel({
                       {specCostCard(it)}
                     </div>
                   )}
-                  {(it.output_kind === "image_url" || it.output_kind === "video_file" || it.output_kind === "image_strip" || it.output_kind === "song" || it.output_kind === "game_html" || it.output_kind === "quiz_html") && (() => {
-                    if (it.output_kind === "image_strip") {
-                      let pages = [];
-                      try {
-                        const parsed = JSON.parse(it.output || "{}");
-                        if (Array.isArray(parsed.pages)) pages = parsed.pages;
-                      } catch (e) {
-                        console.error("[HistoryPanel] Failed to parse image_strip JSON:", e);
-                      }
-                      if (pages.length === 0) return <div className="plan">（插画故事 · 共 0 页）</div>;
-                      return (
-                        <div style={{ display: "flex", gap: 8, overflowX: "auto" }}>
-                          {pages.map((p, i) => (
-                            <div key={i} style={{ flex: "0 0 auto", width: "60%", maxWidth: 280, borderRadius: 8, overflow: "hidden", background: "#0b1220" }}>
-                              {mediaSrc(p?.local, p?.url)
-                                ? <img src={mediaSrc(p.local, p.url)} alt={`p${i+1}`} style={{ width: "100%", display: "block" }} />
-                                : <div style={{ padding: 20, color: "#888", textAlign: "center", fontSize: 12 }}>第 {i+1} 页（未生成）</div>}
-                              <div style={{ padding: "4px 8px", fontSize: 10, color: "#888", background: "#1f232c" }}>第 {i + 1} / {pages.length} 页</div>
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    }
-                    if (it.output_kind === "song") {
-                      let lyrics = "";
-                      try {
-                        const p = JSON.parse(it.output || "{}");
-                        lyrics = p.lyrics || "";
-                      } catch (e) {
-                        console.error("[HistoryPanel] Failed to parse song JSON:", e);
-                      }
-                       return <div className="concept" style={{ whiteSpace: "pre-wrap", fontFamily: '"PingFang SC","Microsoft YaHei",serif', lineHeight: 1.8 }}>{lyrics || "（歌词为空）"}</div>;
-                    }
-                    if (it.output_kind === "game_html" || it.output_kind === "quiz_html") {
-                      return (
-                        <SandboxedHtmlFrame
-                          src={mediaSrc(it.local_file, it.output)}
-                          isQuiz={it.output_kind === "quiz_html"}
-                          fallback={it.output}
-                        />
-                      );
-                    }
-                    // 其余：image_url / video_file
-                    return (it.output_kind === "video_file" ? (
-                      <video
-                        src={mediaSrc(it.local_file, it.output)}
-                        controls
-                        style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8 }}
-                      />
-                    ) : (
-                      (["recipe", "tarot", "character"].includes(it.mode) ? (
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 8 }}>
-                          <img src={mediaSrc(it.local_file, it.output)} alt="result" style={{ maxWidth: "480px", width: "100%", height: "auto", objectFit: "contain", borderRadius: "12px", display: "block", background: "var(--panel-2)" }} />
-                          {it.caption ? (
-                            <div style={{ maxWidth: "480px", width: "100%", marginTop: 10, padding: "12px 14px", boxSizing: "border-box", background: "var(--panel-2)", border: "1px solid var(--border)", borderRadius: "12px", color: "var(--text)", fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word", textAlign: "left" }}>
-                              {it.caption}
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
-                          <img src={mediaSrc(it.local_file, it.output)} alt="result" style={{ maxWidth: "100%", borderRadius: "12px", marginTop: 8, display: "block" }} />
-                          {it.caption ? (
-                            <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, marginTop: 8, padding: "10px 12px", borderRadius: "0 0 12px 12px", color: "#fff", background: "linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0))", fontSize: 20, fontWeight: 700, textAlign: "center", textShadow: "0 1px 3px rgba(0,0,0,0.5)" }}>
-                              {it.caption}
-                            </div>
-                          ) : null}
-                        </div>
-                      ))
-                    ))} )}
+                  {renderOutput(it)}
                   {it.model_used ? (
                     <div style={{ marginTop: 6, fontSize: 12, color: "var(--muted, #888)" }}>
                       由 {it.model_used} 生成

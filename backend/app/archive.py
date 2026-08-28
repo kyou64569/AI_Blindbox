@@ -137,12 +137,26 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
         if dl:
             result.image_url = dl
 
+    # 角色卡模式的附图可能是本地文件（b64_json 落盘 / 相对路径）：
+    # 图片应是本模式的 local_file 主角，不能让下方的文本 md 抢占该位。
+    if result.output_kind == "character_card" and isinstance(result.image_url, str) and result.image_url.strip():
+        img_candidate = result.image_url.strip()
+        img_path = out_dir / img_candidate if not Path(img_candidate).is_absolute() else Path(img_candidate)
+        if img_path.exists():
+            try:
+                local_file = str(img_path.relative_to(out_dir))
+            except ValueError:
+                # 保留已有的 local_file 值，不覆盖为 None
+                pass
+
     # 纯文本成品（诗歌/角色卡/命名/谜题/小说等）-> 额外落一份可读 md，
     # 方便文件系统直接查看与历史面板浏览；local_file 指向该 md。
     # 排除 URL / 已落盘的绝对路径（前者是远程成品，后者 code-spec/图片已处理）。
+    # 角色卡（character_card）除外：其文本已有专属渲染（字段卡），local_file 留给附图。
     if (not local_file and isinstance(output_val, str) and output_val.strip()
             and not re.match(r"^https?://", output_val.strip())
-            and not Path(output_val).is_absolute()):
+            and not Path(output_val).is_absolute()
+            and result.output_kind != "character_card"):
         mode_meta = get_settings().get_mode(mode_id) or {}
         mode_name = mode_meta.get("name", mode_id)
         md_content = (
