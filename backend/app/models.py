@@ -35,4 +35,5 @@ class BlindBoxResult:
     model_used: str | None = None   # 最终产出模型名；mock 模式为 "Mock 模拟"；无模型调用为 None
     error: str | None = None        # 回退到 mock 的原因（仅 game 等会静默回退的模式）
     env_warning: str | None = None  # code 模式技术栈黑名单校验命中的环境体积警告（重试后仍命中时透传前端）
+    reasoning: list | None = None    # 各阶段模型思考内容 [{stage, ctx, model, text}, ...]；模型未返回思考时为 None
     usage: dict | None = None

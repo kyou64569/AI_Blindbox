@@ -256,6 +256,9 @@
       // 异步开盒任务进度
       const [task, setTask] = useState(null);      // {task_id, stage_label, progress, elapsed}
       const pollRef = useRef(null);                 // 轮询定时器句柄
+      const sseRef = useRef(null);                   // SSE 连接句柄
+      const [liveStreams, setLiveStreams] = useState([]); // SSE 实时思考流 [{stage, model, text}]
+      const [streamNote, setStreamNote] = useState(null); // SSE 降级提示（后端未重启/代理不支持时可见）
       // 批量开盒
       const [batchCount, setBatchCount] = useState(3);
       const [batchTasks, setBatchTasks] = useState([]);  // [{task_id, status, stage_label, progress, elapsed, result}]
@@ -320,6 +323,18 @@
         }).catch(() => {});
       }, []);
 
+      // 统一停止：轮询定时器 + SSE 连接（两者并存，停止时一并关掉）
+      // 注意：必须定义在 runOpen 之前——const 没有提升，定义在后面会 TDZ 报错。
+      const stopTaskWatch = () => {
+        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+        if (sseRef.current) { try { sseRef.current.close(); } catch (e) {} sseRef.current = null; }
+      };
+      // 组件卸载时清理 SSE 长连接（否则切页签会残留连接）
+      useEffect(() => () => {
+        try { sseRef.current && sseRef.current.close(); } catch (e) {}
+        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      }, []);
+
       const runOpen = async (modeId, seed) => {
         const m = modeId || selected;
         if (!m) return;
@@ -347,7 +362,42 @@
         const taskId = data && data.task_id;
         if (!taskId) { setLoading(false); setError("服务未返回 task_id，请检查后端版本"); return; }
 
-        // 2) 轮询 GET /api/task/{id}，更新进度；完成后展示结果
+        // 2) SSE 实时思考流（轮询仍并行保留作兜底）
+        setLiveStreams([]);
+        setStreamNote(null);
+        sseRef.current = subscribeTaskStream(taskId, {
+          onStage: (_s, label) => setTask(prev => (prev ? { ...prev, stage_label: label } : prev)),
+          onReasonStart: (stage, model) => setLiveStreams(prev => {
+            if (prev.length && prev[prev.length - 1].stage === stage) return prev;
+            return [...prev, { stage, model, text: "" }];
+          }),
+          onDelta: text => setLiveStreams(prev => {
+            if (prev.length === 0) return [{ stage: "模型思考", model: "", text }];
+            const next = prev.slice();
+            const last = { ...next[next.length - 1] };
+            last.text = (last.text || "") + text;
+            next[next.length - 1] = last;
+            return next;
+          }),
+          onDone: result => {
+            stopTaskWatch();
+            setLoading(false); setTask(null);
+            if (result) setResult(result); else setError("任务完成但结果为空");
+          },
+          onError: (msg, d) => {
+            if (!d) return; // 连接层错误交给轮询兜底
+            stopTaskWatch();
+            setLoading(false); setTask(null);
+            setError(d.type === "cancelled" ? "任务已取消。" : "开盲盒失败: " + (d.error || msg));
+          },
+          onFallback: () => {
+            // SSE 不可用（后端未重启 / 代理不支持）——给可见提示，
+            // 否则用户只看到进度条却不知道思考流为什么没出来。
+            setStreamNote("实时思考流不可用（后端可能需要重启），已自动降级为进度条模式");
+          },
+        }, { fallbackMs: 8000 });
+
+        // 3) 轮询 GET /api/task/{id}，更新进度；完成后展示结果（SSE 不可用时的兜底）
         const poll = async () => {
           let t;
           try {
@@ -355,29 +405,114 @@
             t = await r.json();
             if (!r.ok) throw new Error((t && t.detail) || "查询任务失败");
           } catch (e) {
-            clearInterval(pollRef.current); pollRef.current = null;
+            stopTaskWatch();
             setLoading(false); setTask(null);
             setError("查询任务失败: " + e.message);
             return;
           }
           setTask({ task_id: taskId, stage_label: t.stage_label, progress: t.progress, elapsed: t.elapsed });
           if (t.status === "done") {
-            clearInterval(pollRef.current); pollRef.current = null;
+            stopTaskWatch();
             setLoading(false); setTask(null);
             if (t.result) setResult(t.result);
             else setError("任务完成但结果为空");
           } else if (t.status === "cancelled") {
-            clearInterval(pollRef.current); pollRef.current = null;
+            stopTaskWatch();
             setLoading(false); setTask(null);
             setError("任务已取消。");
           } else if (t.status === "error") {
-            clearInterval(pollRef.current); pollRef.current = null;
+            stopTaskWatch();
             setLoading(false); setTask(null);
             setError("开盲盒失败: " + (t.error || "未知错误"));
           }
         };
         await poll();
         if (!pollRef.current) pollRef.current = setInterval(poll, 1200);
+      };
+
+      // SSE 客户端：订阅 /api/task/{id}/stream，实时接收思考增量与阶段切换。
+      // 与轮询并存：SSE 是增强，连接异常时轮询兜底，保证不卡死。
+      // 事件对应后端 stream_bus.py：stage / reasoning_start / reasoning_delta /
+      // reasoning_end / done / error / cancelled / end
+      const subscribeTaskStream = (taskId, handlers = {}, opts = {}) => {
+        if (typeof window === "undefined" || typeof window.EventSource === "undefined") return null;
+        const { onStage, onReasonStart, onDelta, onReasonEnd, onDone, onError, onFallback } = handlers;
+        const fallbackMs = opts.fallbackMs || 15000;
+        let closed = false, gotAny = false, es;
+        try {
+          es = new window.EventSource("/api/task/" + encodeURIComponent(taskId) + "/stream");
+        } catch (e) {
+          if (onFallback) onFallback(e);
+          return null;
+        }
+        const parse = ev => { try { return JSON.parse(ev.data); } catch (e) { return null; } };
+        const shut = () => { closed = true; try { es.close(); } catch (e) {} };
+
+        es.onopen = () => { gotAny = true; };
+        es.addEventListener("stage", ev => { const d = parse(ev); if (d && onStage) onStage(d.stage, d.label, d); });
+        es.addEventListener("reasoning_start", ev => { const d = parse(ev); if (d && onReasonStart) onReasonStart(d.stage, d.model, d); });
+        es.addEventListener("reasoning_delta", ev => {
+          const d = parse(ev);
+          if (d && d.text) { gotAny = true; if (onDelta) onDelta(d.text, d); }
+        });
+        es.addEventListener("reasoning_end", ev => { const d = parse(ev); if (onReasonEnd) onReasonEnd(d); });
+        es.addEventListener("done", ev => { const d = parse(ev); shut(); if (onDone) onDone(d && d.result, d); });
+        es.addEventListener("error", ev => {
+          // 终态 error/cancelled/cancelling（服务端用 event 名区分）vs 连接层错误
+          if (ev && typeof ev.data === "string" && ev.data && ev.data !== "{}") {
+            const d = parse(ev);
+            if (d && (d.type === "error" || d.type === "cancelled" || d.type === "cancelling")) {
+              shut();
+              if (onError) onError((d.error || "开盒失败"), d);
+              return;
+            }
+          }
+          if (closed) return;
+          if (onError) onError("SSE 连接中断", null);
+          if (onFallback) onFallback(ev);
+          shut();
+        });
+        es.addEventListener("end", shut);
+
+        // 静默兜底：连上但一直没数据（后端老版本无 SSE），通知上层走轮询
+        const timer = setTimeout(() => {
+          if (!gotAny && !closed && onFallback) onFallback(new Error("SSE 无响应"));
+        }, fallbackMs);
+
+        return {
+          close() {
+            closed = true;
+            clearTimeout(timer);
+            try { es && es.close(); } catch (e) {}
+          },
+        };
+      };
+
+      // 实时思考面板：开盒进行中随 SSE 增量逐字显示（任务结束后由静态思考面板接管）
+      // 实时思考流面板：开盒进行中随 SSE 增量逐字显示（任务结束后由静态思考面板接管）
+      const LiveThinkingPanel = ({ streams, live }) => {
+        const list = (streams || []).filter(s => s.text);
+        if (list.length === 0) return null;
+        const totalChars = list.reduce((n, s) => n + (s.text || "").length, 0);
+        return html`
+          <div style=${{ margin: "10px 0", border: "1px solid var(--accent)", borderRadius: 10, background: "rgba(127,119,221,0.06)", padding: "10px 12px" }}>
+            <div style=${{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600, color: "var(--accent)", letterSpacing: 0.5, marginBottom: 8 }}>
+              <span>思考中…（${totalChars} 字）</span>
+              ${live ? html`<span style=${{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", animation: "blink 1s steps(2, start) infinite", display: "inline-block" }} />` : ""}
+            </div>
+            ${list.map((s, i) => html`
+              <div style=${i === 0 ? undefined : { marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--border)" }}>
+                <div style=${{ fontSize: 11, color: "var(--accent)", fontWeight: 600, marginBottom: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <span>${s.stage || "模型思考"}</span>
+                  ${s.model ? html`<span style=${{ color: "var(--muted)", fontWeight: 400 }}>· ${s.model}</span>` : ""}
+                </div>
+                <div style=${{ fontSize: 13, lineHeight: 1.75, color: "var(--muted)", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Microsoft YaHei", monospace' }}>
+                  ${s.text}${live && i === list.length - 1
+                    ? html`<span style=${{ display: "inline-block", width: 7, height: 13, marginLeft: 2, verticalAlign: "text-bottom", background: "var(--accent)", animation: "blink 1s steps(2, start) infinite" }} />`
+                    : ""}
+                </div>
+              </div>`)}
+          </div>`;
       };
 
       const cancelTask = async () => {
@@ -483,6 +618,76 @@
         return null; // 无法渲染 -> 退回纯文本
       };
       // 角色卡：解析 "Name | xxx" 或 "Name: xxx" 格式的结构化文本 → [{label, value}]
+      // 思考强度可选项：与后端 agents._THINKING_VALUES 一一对应
+      // 说明：Gemini 3+ 用 thinkingLevel（不支持 thinkingBudget），"关闭"映射为 minimal
+      // （Gemini 3 无法真正关闭思考）；非 Gemini 厂商走 reasoning_effort，default/off 不注入参数。
+      const THINKING_OPTIONS = [
+        { value: "default", label: "默认（不指定，沿用模型默认思考水平）" },
+        { value: "off", label: "关闭（Gemini 3 映射为 minimal，最接近关闭）" },
+        { value: "low", label: "低（更快、更省 token）" },
+        { value: "medium", label: "中（平衡）" },
+        { value: "high", label: "高（推理最深，最慢）" },
+      ];
+      // 思考强度下拉：每张模型卡片一个，紧跟 temperature 之后
+      const thinkingSelect = (value, onPick) => {
+        // 值收敛到合法选项：配置文件里若被手改成非法值（如 "HIGH"/"关闭"/乱码），
+        // 直接透传给<select> 会让下拉显示空白，这里兜底回 default。
+        const cur = THINKING_OPTIONS.some(o => o.value === value) ? value : "default";
+        const hit = THINKING_OPTIONS.find(o => o.value === cur);
+        return html`
+          <div class="form-row">
+            <label>思考强度 thinking（可选）</label>
+            <select value=${cur} onChange=${e => onPick(e.target.value)}>
+              ${THINKING_OPTIONS.map(o => html`<option key=${o.value} value=${o.value}>${o.label}</option>`)}
+            </select>
+            <div class="note">当前：${hit.label}。Gemini 3+ 原生端点用 thinkingLevel；其他厂商走 reasoning_effort。</div>
+          </div>`;
+      };
+      // 温度输入框组件。
+      // 为什么不能用受控 <input type="number"> + Number(value)：
+      // 输入 "0.8" 到 "0" 后立刻把 0 存回 state，浏览器此时再收到 "." 会认为
+      // "0." 不是合法数字而把 value 置空，小数点根本进不来（中文输入法下更明显）。
+      // 改为「本地字符串态 + 失焦提交」：编辑期间不碰外部 state，
+      // 用户可自由输入 "0." / "0.8" / "1"，失焦或回车时才解析成数字写入配置。
+      // 解析不通过（空/非法）回退 null，即"留空=用全局默认"。
+      const TemperatureInput = ({ value, onChange, id }) => {
+        const [draft, setDraft] = useState(() =>
+          value === null || value === undefined || value === "" ? "" : String(value));
+        const lastExternal = useRef(value);
+
+        // 外部值变化（如切换卡片/保存后重载）时同步回本地编辑态
+        useEffect(() => {
+          if (value === lastExternal.current) return;
+          lastExternal.current = value;
+          setDraft(value === null || value === undefined || value === "" ? "" : String(value));
+        }, [value]);
+
+        const commit = () => {
+          const s = String(draft || "").trim();
+          if (s === "") { lastExternal.current = null; onChange(null); return; }
+          const n = Number(s);
+          if (isFinite(n)) { lastExternal.current = n; onChange(n); }
+          else {
+            // 非法输入：还原成当前有效值，不把垃圾写进配置
+            const cur = value === null || value === undefined || value === "" ? "" : String(value);
+            lastExternal.current = value;
+            setDraft(cur);
+          }
+        };
+
+        return html`
+          <div class="form-row">
+            <label>温度 temperature（可选，留空=用全局/默认）</label>
+            <input id=${id} type="text" inputMode="decimal" autocomplete="off"
+              value=${draft}
+              onInput=${e => setDraft(e.target.value)}
+              onBlur=${commit}
+              onKeyDown=${e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
+              placeholder="如 0.8" />
+            <div class="note">支持 0 ~ 2 的小数，直接键入即可（如 0.8 / 1.2），回车或失焦生效。</div>
+          </div>`;
+      };
+
       const parseCharFields = (text) => {
         if (!text) return [];
         return text.split("\n").map(l => l.trim()).filter(Boolean).map(line => {
@@ -518,6 +723,37 @@
             ${size ? html`<div style=${{ color: "var(--muted)", marginTop: 4 }}>磁盘：${size}</div>` : ""}
           </div>`);
         return rows.length ? rows : null;
+      };
+      // 思考内容打字机回放：按字符递增显示，模拟流式逐字输出的观感。
+      // 「思考过程」折叠面板：展示各阶段模型返回的 reasoning / thinking 文本。
+      // 无思考内容（reasoning 为空）时整块不渲染。
+      // 展开后直接显示全文——实时思考已在开盒过程中逐字展示过，
+      // 结果页再演一遍打字机是重复劳动（数千字要拖近 3 秒）。
+      const ThinkingPanel = ({ reasoning }) => {
+        const entries = Array.isArray(reasoning) ? reasoning.filter(e => e && e.text) : [];
+        const [open, setOpen] = useState(false);
+        if (entries.length === 0) return null;
+        const totalChars = entries.reduce((n, e) => n + (e.text || "").length, 0);
+        return html`
+          <div style=${{ margin: "10px 0", border: "1px solid var(--border)", borderRadius: 10, background: "var(--panel-2)", overflow: "hidden" }}>
+            <button type="button" onClick=${() => setOpen(!open)}
+              style=${{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "9px 12px", background: "transparent", border: "none", color: "var(--text)", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>
+              <span>思考过程（${entries.length} 段 · ${totalChars} 字）</span>
+              <span style=${{ color: "var(--muted)", fontWeight: 400, fontSize: 12 }}>${open ? "收起 ▲" : "展开 ▼"}</span>
+            </button>
+            ${open && html`<div style=${{ padding: "0 12px 12px" }}>
+              ${entries.map((e, i) => html`
+                <div style=${i === 0 ? undefined : { marginTop: 10, paddingTop: 10, borderTop: "1px dashed var(--border)" }}>
+                  <div style=${{ fontSize: 11, color: "var(--accent, #7f77dd)", fontWeight: 600, letterSpacing: 0.4, marginBottom: 5, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <span>${e.stage || "模型思考"}</span>
+                    ${e.model ? html`<span style=${{ color: "var(--muted)", fontWeight: 400 }}>· ${e.model}</span>` : ""}
+                  </div>
+                  <div style=${{ fontSize: 13, lineHeight: 1.75, color: "var(--muted, #b9bdc7)", whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Microsoft YaHei", monospace' }}>
+                    ${e.text}
+                  </div>
+                </div>`)}
+            </div>`}
+          </div>`;
       };
       const loadHistory = async () => {
         setHistLoading(true); setHistError(null);
@@ -813,6 +1049,7 @@
               ${(st.models||[]).length > 0 && html`<div class="note">已获取 ${st.models.length} 个模型，点下拉可随时改选。</div>`}
               ${st.err && html`<div class="error">${st.err}</div>`}
             </div>
+            ${thinkingSelect(getv("thinking"), v => setv("thinking", v))}
           </div>`;
       };
 
@@ -892,16 +1129,16 @@
               <input value=${getv("base_url")} onInput=${e => setv("base_url", e.target.value)} placeholder="留空=用全局默认" /></div>
             <div class="form-row"><label>API Key</label>
               <input type="password" value=${getv("api_key")} onInput=${e => setv("api_key", e.target.value)} placeholder="留空=用全局默认" /></div>
-            <div class="form-row"><label>温度 temperature（可选，留空=用全局/默认）</label>
-              <input type="number" step="0.1" value=${tv === "" || tv == null ? "" : tv}
-                onInput=${e => setv("temperature", e.target.value === "" ? null : Number(e.target.value))} placeholder="如 0.8" /></div>
+            <${TemperatureInput} id=${"temp-" + basePath + "-" + idx} value=${tv}
+              onChange=${v => setv("temperature", v)} />
+            ${thinkingSelect(getv("thinking"), v => setv("thinking", v))}
           </div>`;
       };
 
       const renderModelCards = ({ title, basePath, note }) => {
         const models = getModelsList(basePath);
         const collapsed = isCollapsed(basePath);
-        const add = () => update(basePath + ".models", [...models, { _id: "card_" + Math.random().toString(36).slice(2), model:"", base_url:"", api_key:"", temperature:null }]);
+        const add = () => update(basePath + ".models", [...models, { _id: "card_" + Math.random().toString(36).slice(2), model:"", base_url:"", api_key:"", temperature:null, thinking:"default" }]);
         return html`
           <div class="section-title">${title}</div>
           ${note && html`<div class="note" style=${{ marginBottom: 8 }}>${note}</div>`}
@@ -986,6 +1223,8 @@
                 </div>
                 <button class="save-btn" style=${{padding:"6px 14px",background:"var(--danger)",borderColor:"var(--danger)",marginTop:6}} onClick=${cancelTask}>取消</button>
               </div>`}
+            ${loading && liveStreams.length > 0 && html`<${LiveThinkingPanel} streams=${liveStreams} live=${true} />`}
+            ${loading && streamNote && html`<div class="note" style=${{ marginTop: 8, color: "var(--muted)" }}>⚠️ ${streamNote}</div>`}
             ${error && html`<div class="error">${error}</div>`}
             ${batchError && html`<div class="error">${batchError}</div>`}
             ${batchTasks.length > 0 && html`
@@ -1010,6 +1249,7 @@
             ${result && html`
               <div class="result">
                 <div class="seed-pill">seed: ${result.seed}</div>
+                <${ThinkingPanel} reasoning=${result.reasoning} />
                 <h3>概念卡（创意 Agent）</h3>
                 <div class="concept">${result.concept}</div>
                 <h3>规划输出（规划 Agent）</h3>
@@ -1258,7 +1498,7 @@
               `}
             </div>
 
-            ${renderModelSlot({title:"全局默认模型（各 Agent/Provider 留空时回退）", basePath:"global", keyMap:{model:"default_model",base_url:"default_base_url",api_key:"default_api_key"}, config, update, fetchModels})}
+            ${renderModelSlot({title:"全局默认模型（各 Agent/Provider 留空时回退）", basePath:"global", keyMap:{model:"default_model",base_url:"default_base_url",api_key:"default_api_key",thinking:"default_thinking"}, config, update, fetchModels})}
 
             ${["creative","planner","executor"].map(key => {
               const titles = {creative:"Agent1 创意（高温度，脑洞大）", planner:"Agent2 规划（低温度，严谨格式化）", executor:"Agent3 执行（图片/视频由下方 provider 覆盖）"};
@@ -1325,6 +1565,7 @@
                   </div>
                   <div class="seed-pill">seed: ${it.seed || "（无）"}</div>
                   ${expandedId === it.id ? html`
+                    <${ThinkingPanel} reasoning=${it.reasoning} />
                     <h3>概念卡</h3>
                     <div class="concept">${it.concept || ""}</div>
                     <h3>规划输出</h3>

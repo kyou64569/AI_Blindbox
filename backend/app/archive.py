@@ -198,6 +198,7 @@ def archive_result(result: BlindBoxResult, mode_id: str) -> dict:
         "env_warning": result.env_warning,
         "favorite": False,      # 收藏标记（历史面板星标），轻量字段默认不收藏
         "rating": None,         # 评分 1-5，未评分为 None
+        "reasoning": getattr(result, "reasoning", None),  # 各阶段模型思考内容（模型未返回时为 None）
         "usage": result.usage,  # token 用量统计（未启用/失败时为 None）
     }
     json_path = out_dir / f"result_{_slugify(result.concept, max_len=30)}_{rid}.json"

@@ -1,6 +1,7 @@
 """FastAPI 入口：提供模式列表、开盲盒、配置读写接口。"""
 from __future__ import annotations
 
+import asyncio
 import copy
 import io
 import json
@@ -18,11 +19,14 @@ import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from . import config
 from . import pipeline
+from .gemini import is_gemini_native
+from .gemini import list_models as gemini_native_list_models
+from .stream_bus import BROADCASTERS
 from .tools import validate_mode_config
 
 app = FastAPI(title="AI 盲盒", version="0.1.0")
@@ -120,7 +124,9 @@ app.add_middleware(
     allow_origin_regex=r"^https?://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Admin-Token"],
+    # Last-Event-ID 是 SSE 断线续传的标准请求头（EventSource 自动携带）
+    allow_headers=["Content-Type", "X-Admin-Token", "Last-Event-ID"],
+    expose_headers=["Last-Event-ID"],
 )
 
 SETTINGS_PATH = config.PROJECT_ROOT / "settings.yaml"
@@ -352,6 +358,10 @@ def list_history(mode: str | None = None, limit: int = 100, q: str = ""):
             "favorite": bool(rec.get("favorite", False)),
             "rating": rec.get("rating"),
             "usage": rec.get("usage"),
+            # 思考内容：历史页展开时要用。归档里本来就有（一直落盘），
+            # 只是此前没往外返回，导致历史记录看不到思考过程。
+            # 体积可控（thinking.py 有 _MAX_TOTAL=24000 上限），直接透传。
+            "reasoning": rec.get("reasoning"),
         })
     return {"items": items, "total": total, "returned": len(items)}
 
@@ -658,7 +668,13 @@ def _assert_outbound_url_allowed(url: str) -> None:
 
 @app.post("/api/models")
 def list_models(req: ModelsRequest):
-    """给定 base_url + api_key，调用 OpenAI 兼容 /models 返回模型 id 列表，供前端下拉选择。"""
+    """给定 base_url + api_key，返回模型 id 列表，供前端下拉选择。
+
+    自动分流：
+      - Gemini 原生端点（generativelanguage.../v1beta，非 /openai）→ 走原生
+        GET /models，解析 models[].name（OpenAI 兼容层的 data[].id 结构在这里不适用）
+      - 其余 → OpenAI SDK models.list()，失败再退回原生 http GET {base}/models
+    """
     import httpx
     from openai import OpenAI
 
@@ -671,6 +687,22 @@ def list_models(req: ModelsRequest):
 
     base_url = _normalize_base_url(original)
     _assert_outbound_url_allowed(base_url)
+
+    # 0) Gemini 原生端点：结构与鉴权都不同，先单独处理
+    if is_gemini_native(base_url):
+        try:
+            ids = gemini_native_list_models(base_url, api_key)
+            return {"models": ids, "provider": "gemini-native"}
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"Gemini 原生模型列表获取失败：{type(e).__name__}: {e}\n"
+                    f"已尝试地址：{base_url}/models?pageSize=1000\n"
+                    "请确认：1) API Key 正确；2) base_url 填到 /v1beta（不要带 /openai）；"
+                    "3) 网络可访问 generativelanguage.googleapis.com。"
+                ),
+            )
 
     last_err = ""
 
@@ -845,6 +877,7 @@ def _result_payload(result: Any) -> dict:
         "caption": result.caption,
         "image_url": result.image_url,
         "env_warning": result.env_warning,
+        "reasoning": getattr(result, "reasoning", None),
         "usage": result.usage,
         "archived": result.archived,
     }
@@ -905,6 +938,8 @@ def _run_task_background(task_id: str, mode_id: str, seed: str | None) -> None:
 
 def _run_pipeline_task(task_id: str, mode_id: str, seed: str | None, started: float) -> None:
     """真正执行管道（已持有执行位）。"""
+    bc = BROADCASTERS.get(task_id)
+
     def on_stage(stage: str, label: str) -> None:
         with _TASKS_LOCK:
             t = _TASKS.get(task_id)
@@ -917,16 +952,32 @@ def _run_pipeline_task(task_id: str, mode_id: str, seed: str | None, started: fl
             except ValueError:
                 t["progress"] = 0.0
             t["elapsed"] = round(time.time() - started, 1)
+        # 同步推给 SSE 订阅者：切换阶段时先隐式结束上一段思考流
+        if bc is not None and not bc.closed:
+            bc.stage(stage, label)
 
     def should_cancel() -> bool:
         with _TASKS_LOCK:
             return bool(_TASKS.get(task_id, {}).get("cancelled"))
+
+    def on_delta(text: str) -> None:
+        """思考增量：实时推到 SSE（前端思考面板逐字显示）。"""
+        if bc is None or bc.closed or not text:
+            return
+        from .thinking import current_model
+        bc.reasoning_start(current_stage(), current_model())
+        bc.reasoning_delta(text)
+
+    def current_stage() -> str:
+        with _TASKS_LOCK:
+            return str(_TASKS.get(task_id, {}).get("stage_label") or "")
 
     try:
         result = pipeline.run_blind_box(
             mode_id, seed,
             on_stage=on_stage,
             should_cancel=should_cancel,
+            on_delta=on_delta,
         )
         payload = _result_payload(result)
         payload["mode"] = mode_id
@@ -940,6 +991,8 @@ def _run_pipeline_task(task_id: str, mode_id: str, seed: str | None, started: fl
             t["progress"] = 1.0
             t["elapsed"] = round(time.time() - started, 1)
             t["result"] = payload
+        if bc is not None and not bc.closed:
+            bc.finish(payload)
     except pipeline.TaskCancelled:
         with _TASKS_LOCK:
             t = _TASKS.get(task_id)
@@ -947,6 +1000,8 @@ def _run_pipeline_task(task_id: str, mode_id: str, seed: str | None, started: fl
                 t["status"] = "cancelled"
                 t["stage_label"] = "已取消"
                 t["elapsed"] = round(time.time() - started, 1)
+        if bc is not None and not bc.closed:
+            bc.fail("已取消", status="cancelled")
     except Exception as e:  # noqa: BLE001
         with _TASKS_LOCK:
             t = _TASKS.get(task_id)
@@ -960,12 +1015,19 @@ def _run_pipeline_task(task_id: str, mode_id: str, seed: str | None, started: fl
             "开盒任务失败: task=%s mode=%s elapsed=%.1fs error=%s",
             task_id, mode_id, time.time() - started, t["error"] if t else "?",
         )
+        if bc is not None and not bc.closed:
+            bc.fail(f"{type(e).__name__}: {e}", status="error")
+    finally:
+        # 任务终结即注销广播器（事件已 flush 到订阅者，订阅端会收到 end 后自行关闭）
+        BROADCASTERS.drop(task_id)
 
 
 def _open_task(mode_id: str, seed: str | None) -> dict:
     """创建异步开盒任务，立即返回 task_id。"""
     task_id = uuid.uuid4().hex[:12]
     now = time.time()
+    # 先建广播器再起线程：保证任务一开始推的事件就有订阅者能收到
+    bc = BROADCASTERS.create(task_id)
     with _TASKS_LOCK:
         _TASKS[task_id] = {
             "status": "running",
@@ -983,6 +1045,8 @@ def _open_task(mode_id: str, seed: str | None) -> dict:
     # 注意：必须在 _TASKS_LOCK 块外调用（_task_cleanup 内部自带同一把锁，
     # threading.Lock 不可重入，锁内调用会死锁导致 POST /api/open 永久挂起）。
     _task_cleanup()
+    # 先推一条初始 stage，订阅者一连上就能立刻看到状态（不必等 1.2s 轮询）
+    bc.stage("creative", "排队中")
     t = threading.Thread(
         target=_run_task_background,
         args=(task_id, mode_id, seed),
@@ -1063,7 +1127,119 @@ def cancel_task(task_id: str):
         if t["status"] in ("done", "error", "cancelled"):
             return {"task_id": task_id, "status": t["status"], "cancelled": False}
         t["cancelled"] = True
+    # 立即让 SSE 订阅者知道（不用等任务线程跑到下一个检查点）
+    bc = BROADCASTERS.get(task_id)
+    if bc is not None and not bc.closed:
+        bc.fail("已取消（用户主动取消）", status="cancelling")
     return {"task_id": task_id, "status": "cancelling", "cancelled": True}
+
+
+@app.get("/api/task/{task_id}/stream")
+async def stream_task(task_id: str, request: Request):
+    """SSE 实时推送任务事件：阶段切换 + 思考增量。
+
+    事件类型（data 为 JSON）：
+      stage           {seq, stage, label}                阶段切换
+      reasoning_start {seq, stage, model}                 一段思考开始
+      reasoning_delta {seq, text}                         思考增量（逐字）
+      reasoning_end   {seq}                               一段思考结束
+      done            {seq, result, status:"done"}        成功
+      error           {seq, error, status:"error"}        失败
+      cancelled       {seq, error, status:"cancelled"}    取消
+      end             {}                                   流结束（前端关闭 EventSource）
+
+    支持 Last-Event-ID 断线续传（浏览器 EventSource 自动带），也可用
+    ?last_event_id= 手动指定。任务已完成时立即补发 done 并收尾，
+    因此前端即使在任务结束后才连上也能拿到最终结果。
+
+    注意：即使没人在订阅，事件也会缓存在广播器里（有上限），
+    这样「先开盒、后打开面板」的顺序也能正确补齐思考内容。
+    """
+    with _TASKS_LOCK:
+        t = _TASKS.get(task_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail=f"任务 {task_id} 不存在或已过期")
+
+    bc = BROADCASTERS.get(task_id)
+    # 任务已结束且广播器已注销 -> 无法再补发，直接把任务表里的终态回给前端
+    if bc is None or bc.closed:
+        if t["status"] in ("done", "error", "cancelled"):
+            async def _replay():
+                payload = {
+                    "type": t["status"] if t["status"] != "done" else "done",
+                    "seq": 0,
+                    "status": t["status"],
+                }
+                if t["status"] == "done":
+                    payload["result"] = t.get("result")
+                else:
+                    payload["error"] = t.get("error") or t.get("stage_label") or ""
+                yield f"event: {payload['type']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                yield "event: end\ndata: {}\n\n"
+            return StreamingResponse(
+                _replay(), media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        # 仍在排队/运行但广播器已丢（极端情况）-> 退化为纯状态轮询提示
+        async def _idle():
+            yield ": no broadcaster\n\n"
+            while not await request.is_disconnected():
+                yield ": keepalive\n\n"
+                await asyncio.sleep(1.0)
+        return StreamingResponse(_idle(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+    # Last-Event-ID 由浏览器自动带；也支持 query 手动指定（便于测试）
+    last_id = 0
+    hdr = request.headers.get("last-event-id")
+    if hdr and hdr.isdigit():
+        last_id = int(hdr)
+    else:
+        q = request.query_params.get("last_event_id", "")
+        if q.isdigit():
+            last_id = int(q)
+
+    async def _gen():
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        SENTINEL = object()
+
+        def _pump():
+            """在线程池里跑同步的 SSE 生成器，把帧塞进 asyncio 队列。"""
+            try:
+                for frame in bc.stream(last_id):
+                    loop.call_soon_threadsafe(queue.put_nowait, frame)
+            except Exception:  # noqa: BLE001
+                pass
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+
+        task = loop.run_in_executor(None, _pump)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"  # 心跳，防中间代理掐断长连接
+                    continue
+                if item is SENTINEL:
+                    break
+                yield item
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # 关掉 nginx/代理的响应缓冲，否则 SSE 会被攒包，实时性全丢
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/")

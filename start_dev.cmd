@@ -1,9 +1,15 @@
 @echo off
 REM AI Blind Box - DEV launcher (engineering version)
-REM 双击本文件 = 启动「工程版」前端（Vite 实时编译 src/，支持热更新 HMR）。
-REM 与 start_all.cmd 的区别：本文件先设置 DEV_MODE=1，再由 start.py 走 Vite 分支。
-REM 注意：需要本机已安装 Node.js（且 node 在 PATH 中），frontend/node_modules 已存在。
-REM 若 node 缺失，start.py 会自动回退到免构建版 demo.html 并打印提示。
+REM
+REM IMPORTANT: keep this file ASCII-only. cmd.exe parses batch files with the
+REM OEM codepage (936/GBK on zh-CN); UTF-8 Chinese in comments/echo becomes
+REM mojibake that cmd may try to execute as commands.
+REM
+REM Double-click = start the "engineering" frontend (Vite compiles src/ live,
+REM with HMR). Difference vs start_all.cmd: this sets DEV_MODE=1 so start.py
+REM takes the Vite branch.
+REM Requires: Node.js installed (node on PATH) and frontend/node_modules present.
+REM If node is missing, start.py falls back to the no-build demo.html and says so.
 
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"

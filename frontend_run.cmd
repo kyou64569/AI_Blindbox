@@ -2,7 +2,10 @@
 REM Frontend supervisor: restarts serve.py on exit (with delay).
 REM Prefer start.py (unified launcher, single terminal).
 
-REM 项目根基于本脚本所在目录推导（不写死盘符，便于迁移/他人部署）
+REM Project root derived from this script's own directory (no hardcoded drive
+REM letter, so the folder can be moved or deployed elsewhere).
+REM NOTE: keep this file ASCII-only -- cmd.exe parses it with the OEM codepage
+REM (936/GBK on zh-CN) and UTF-8 Chinese would turn into mojibake commands.
 set "ROOT=%~dp0"
 set "ROOT=%ROOT:~0,-1%"
 set VENV_PY=%ROOT%\backend\.venv\Scripts\python.exe

@@ -17,7 +17,7 @@ from typing import Any
 
 from openai import OpenAI, APITimeoutError
 
-from .agents import _call_with_fallback, _executor_creds, _make_simple_call, _resolve_models
+from .agents import _call_with_fallback, _executor_creds, _make_simple_call, _resolve_models, chat_text
 from .config import get_settings
 from .models import BlindBoxResult, FallbackExhausted
 from .tools import (
@@ -102,19 +102,19 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
             )
 
         def call(creds: dict) -> str:
-            client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=90, max_retries=0)
             # 单模型内部：最多 2 次尝试（含大纲校验），异常或校验不通过则触发跨模型 fallback
             local_prompt = user_prompt
             for attempt in range(2):
-                resp = client.chat.completions.create(
-                    model=creds["model"],
-                    temperature=0.85,
-                    messages=[
+                content = chat_text(
+                    creds,
+                    [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": local_prompt},
                     ],
+                    ctx="小说执行 Agent",
+                    timeout=90,
+                    force_temp=0.85,
                 )
-                content = _first_choice_text(resp, "小说执行 Agent", creds["model"]).strip()
                 # 校验：若模型误将大纲原封不动抄回或仍以「输出大纲」开头，自动提示并纠正重试
                 if content == plan.strip() or content.startswith("输出大纲") or content.startswith("**输出大纲**"):
                     if attempt == 0:
@@ -160,17 +160,16 @@ def _run_executor(executor_type: str, plan: str, mode: dict[str, Any], result: "
             user_prompt = f"请基于以下角色概念，生成结构化的角色设定卡：\n\n{plan}"
 
             def _char_call(creds: dict) -> str:
-                client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"],
-                                timeout=90, max_retries=0)
-                resp = client.chat.completions.create(
-                    model=creds["model"],
-                    temperature=0.85,
-                    messages=[
+                return chat_text(
+                    creds,
+                    [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
+                    ctx="角色卡文本",
+                    timeout=90,
+                    force_temp=0.85,
                 )
-                return _first_choice_text(resp, "角色卡文本", creds["model"]).strip()
 
             try:
                 char_text, txt_used = _call_with_fallback(
@@ -533,21 +532,21 @@ def _run_game_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
         return html
 
     def call(creds: dict) -> str:
-        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=180, max_retries=0)
         # 单模型内部：最多 2 次尝试（截断/不完整则重试），异常或仍不完整则触发跨模型 fallback
         last_err: Exception | None = None
         local_user_prompt = user_prompt
         for attempt in range(2):
             try:
-                resp = client.chat.completions.create(
-                    model=creds["model"],
-                    temperature=0.7,
-                    messages=[
+                content = chat_text(
+                    creds,
+                    [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": local_user_prompt},
                     ],
+                    ctx="游戏执行 Agent",
+                    timeout=180,
+                    force_temp=0.7,
                 )
-                content = _first_choice_text(resp, "游戏执行 Agent", creds["model"]).strip()
                 # 诊断日志：记录每个模型的原始输出（前 300 字 + 最后一行的截断标记）
                 tail = content[-120:] if len(content) > 120 else content
                 has_html_start = bool(re.search(r'<!DOCTYPE|<html|<canvas|<script', content, flags=re.I))
@@ -649,18 +648,18 @@ def _run_quiz_executor(plan: str, mode: dict[str, Any], result: "BlindBoxResult 
     user_prompt = f"请基于以下测试内容，生成完整可玩的单文件 HTML5 趣味测试页：\n\n{plan}"
 
     def call(creds: dict) -> str:
-        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=180, max_retries=0)
         for attempt in range(2):
             try:
-                resp = client.chat.completions.create(
-                    model=creds["model"],
-                    temperature=0.7,
-                    messages=[
+                content = chat_text(
+                    creds,
+                    [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
+                    ctx="代码执行 Agent",
+                    timeout=180,
+                    force_temp=0.7,
                 )
-                content = _first_choice_text(resp, "代码执行 Agent", creds["model"]).strip()
                 html = _extract_html(content)
                 if html and "<script" in html.lower():
                     return _save(html)

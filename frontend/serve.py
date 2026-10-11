@@ -149,7 +149,144 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             with open(target, "rb") as f:
                 self.wfile.write(f.read())
 
+    def _is_sse(self, path: str) -> bool:
+        """判断是否 SSE 长连接请求。SSE 必须走流式转发，不能整体读完再返回。"""
+        return "/stream" in path or "text/event-stream" in self.headers.get("Accept", "")
+
+    def _proxy_stream(self, method: str):
+        """SSE 流式反向代理：逐块转发，不缓冲。
+
+        为什么不能用普通 _proxy：那条路径用 urlopen().read() 把整个响应读完才写回，
+        SSE 会被压到「任务结束」才一次性吐出，实时性完全失效（前端 EventSource
+        收不到任何增量，最终 8s 超时降级为进度条模式）。
+
+        实现要点：
+          - 手写 socket 直连后端，按 chunk 转发，立刻 flush
+          - 关闭 Nagle（TCP_NODELAY）避免小包被攒住
+          - 不设 Content-Length（chunked 语义由关闭连接表示），也不设 Connection
+        """
+        url = BACKEND + self.path
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length else None
+
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 80
+        req_path = parsed.path + (("?" + parsed.query) if parsed.query else "")
+
+        try:
+            sock = socket.create_connection((host, port), timeout=30)
+        except OSError as e:
+            self.send_response(502)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            try:
+                self.wfile.write(f"后端 SSE 连接失败: {e}".encode("utf-8"))
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+
+        lines = [
+            f"{method} {req_path} HTTP/1.1",
+            f"Host: {host}:{port}",
+            "Accept: text/event-stream",
+            "Cache-Control: no-cache",
+            "Connection: close",
+        ]
+        # 透传断线续传游标（EventSource 重连时带）
+        last_id = self.headers.get("Last-Event-ID")
+        if last_id:
+            lines.append(f"Last-Event-ID: {last_id}")
+        if body:
+            lines.append(f"Content-Length: {len(body)}")
+            lines.append("Content-Type: " + self.headers.get("Content-Type", "application/json"))
+        lines.append("")
+        lines.append("")
+        try:
+            sock.sendall("\r\n".join(lines).encode("utf-8"))
+            if body:
+                sock.sendall(body)
+        except OSError:
+            sock.close()
+            return
+
+        # 先读后端响应头，透传状态码与 Content-Type
+        try:
+            sock.settimeout(30)
+            head = b""
+            while b"\r\n\r\n" not in head:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    sock.close()
+                    return
+                head += chunk
+        except (OSError, socket.timeout):
+            sock.close()
+            return
+
+        head_text, _, _ = head.partition(b"\r\n\r\n")
+        status_line = head_text.split(b"\r\n")[0].decode("latin-1", errors="replace")
+        try:
+            status = int(status_line.split()[1])
+        except (IndexError, ValueError):
+            status = 502
+
+        self.send_response(status)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        # SSE 全双工：每块即时下推（配合上面每块的 flush）
+        try:
+            old_timeout = self.connection.gettimeout()
+            self.connection.settimeout(1.0)
+        except Exception:
+            old_timeout = None
+
+        try:
+            while True:
+                try:
+                    chunk = sock.recv(4096)
+                except (socket.timeout, TimeoutError):
+                    # 无数据时下发 SSE 注释帧当心跳，防浏览器/代理掐断长连接
+                    try:
+                        self.wfile.write(b": keepalive\n\n")
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        break
+                    continue
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                try:
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    break
+        finally:
+            try:
+                if old_timeout is not None:
+                    self.connection.settimeout(old_timeout)
+            except Exception:
+                pass
+            try:
+                sock.close()
+            except OSError:
+                pass
+
     def _proxy(self, method: str):
+        # SSE 请求走流式分支（必须在读 body 之前判断）
+        if self._is_sse(self.path):
+            self._proxy_stream(method)
+            return
         url = BACKEND + self.path
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length else None

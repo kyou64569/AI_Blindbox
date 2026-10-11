@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import SandboxedHtmlFrame from "./SandboxedHtmlFrame.jsx";
 import { outUrl, mediaSrc } from "../lib/paths.js";
 
@@ -86,12 +86,284 @@ function envCostCard(result) {
   return rows.length ? rows : null;
 }
 
+// 实时思考面板：开盒进行中随 SSE 增量逐字显示。
+// 与静态 ThinkingPanel 的区别：数据来自 SSE 而非最终 result.reasoning。
+// live 为 true 时末尾显示闪烁光标（表示模型还在思考）。
+export function LiveThinkingPanel({ streams, live }) {
+  const list = (streams || []).filter((s) => s.text);
+  if (list.length === 0) return null;
+  const totalChars = list.reduce((n, s) => n + (s.text || "").length, 0);
+
+  return (
+    <div
+      style={{
+        margin: "10px 0",
+        border: "1px solid var(--accent, #7f77dd)",
+        borderRadius: 10,
+        background: "rgba(127,119,221,0.06)",
+        padding: "10px 12px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          fontSize: 12,
+          fontWeight: 600,
+          color: "var(--accent, #7f77dd)",
+          letterSpacing: 0.5,
+          marginBottom: 8,
+        }}
+      >
+        <span>思考中…（{totalChars} 字）</span>
+        {live ? (
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: "var(--accent, #7f77dd)",
+              animation: "blink 1s steps(2, start) infinite",
+              display: "inline-block",
+            }}
+          />
+        ) : null}
+      </div>
+      {list.map((s, i) => (
+        <div
+          key={i}
+          style={
+            i === 0
+              ? undefined
+              : {
+                  marginTop: 8,
+                  paddingTop: 8,
+                  borderTop: "1px dashed var(--border, #2a2f3a)",
+                }
+          }
+        >
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--accent, #7f77dd)",
+              fontWeight: 600,
+              marginBottom: 4,
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+            }}
+          >
+            <span>{s.stage || "模型思考"}</span>
+            {s.model ? (
+              <span style={{ color: "var(--muted, #888)", fontWeight: 400 }}>· {s.model}</span>
+            ) : null}
+          </div>
+          <div
+            style={{
+              fontSize: 13,
+              lineHeight: 1.75,
+              color: "var(--muted, #b9bdc7)",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              fontFamily:
+                'ui-monospace, SFMono-Regular, Menlo, Consolas, "Microsoft YaHei", monospace',
+            }}
+          >
+            {s.text}
+            {live && i === list.length - 1 ? (
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 7,
+                  height: 13,
+                  marginLeft: 2,
+                  verticalAlign: "text-bottom",
+                  background: "var(--accent, #7f77dd)",
+                  animation: "blink 1s steps(2, start) infinite",
+                }}
+              />
+            ) : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// 单条思考内容打字机回放：按字符递增显示，模拟流式逐字输出的观感。
+// 一次性拿到全文后前端自行播放，无需后端 SSE。
+function useTypewriter(text, playing) {
+  const full = text || "";
+  const [shown, setShown] = useState(0);
+  const rafRef = useRef(null);
+
+  useEffect(() => {
+    if (!playing || !full) {
+      if (!playing) setShown(0);
+      return;
+    }
+    const total = full.length;
+    // 每帧推进量：短文本快些，长文本按上限控制总时长在 ~2.5s 内
+    const step = Math.max(1, Math.ceil(total / 150));
+    let cur = 0;
+    let last = 0;
+    const tick = (ts) => {
+      if (!last) last = ts;
+      if (ts - last >= 16) {
+        cur = Math.min(total, cur + step);
+        setShown(cur);
+        last = ts;
+      }
+      if (cur < total) rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    };
+  }, [full, playing]);
+
+  return playing ? full.slice(0, shown) : full;
+}
+
+// 单条思考：Hook 必须挂在独立组件里，不能在 map 回调里调用
+function ThinkingEntry({ entry, playing, first }) {
+  const text = useTypewriter(entry.text, playing);
+  return (
+    <div
+      style={
+        first
+          ? undefined
+          : {
+              marginTop: 10,
+              paddingTop: 10,
+              borderTop: "1px dashed var(--border, #2a2f3a)",
+            }
+      }
+    >
+      <div
+        style={{
+          fontSize: 11,
+          color: "var(--accent, #7f77dd)",
+          fontWeight: 600,
+          letterSpacing: 0.4,
+          marginBottom: 5,
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <span>{entry.stage || "模型思考"}</span>
+        {entry.model ? (
+          <span style={{ color: "var(--muted, #888)", fontWeight: 400 }}>· {entry.model}</span>
+        ) : null}
+      </div>
+      <div
+        style={{
+          fontSize: 13,
+          lineHeight: 1.75,
+          color: "var(--muted, #b9bdc7)",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          fontFamily:
+            'ui-monospace, SFMono-Regular, Menlo, Consolas, "Microsoft YaHei", monospace',
+        }}
+      >
+        {text}
+        {playing ? (
+          <span
+            style={{
+              display: "inline-block",
+              width: 7,
+              height: 14,
+              marginLeft: 2,
+              verticalAlign: "text-bottom",
+              background: "var(--accent, #7f77dd)",
+              animation: "blink 1s steps(2, start) infinite",
+            }}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// 「思考过程」折叠面板：展示各阶段模型返回的 reasoning / thinking 文本。
+// 无思考内容（reasoning 为空）时整块不渲染，避免占位噪音。
+export function ThinkingPanel({ reasoning }) {
+  const entries = React.useMemo(
+    () => (Array.isArray(reasoning) ? reasoning.filter((e) => e && e.text) : []),
+    [reasoning]
+  );
+  const [open, setOpen] = useState(false);
+  // 展开后直接显示完整思考内容，不再做打字机动画。
+  // 原因：实时思考已在开盒过程中逐字展示过，结果页再演一遍是重复劳动；
+  // 且思考常有数千字，打字机要拖近 3 秒，用户想看内容却要干等。
+  const playing = false;
+
+  const toggle = () => setOpen((v) => !v);
+
+  if (entries.length === 0) return null;
+
+  const totalChars = entries.reduce((n, e) => n + (e.text || "").length, 0);
+  const label = `思考过程（${entries.length} 段 · ${totalChars} 字）`;
+
+  return (
+    <div
+      style={{
+        margin: "10px 0",
+        border: "1px solid var(--border, #2a2f3a)",
+        borderRadius: 10,
+        background: "var(--panel-2, #1f232c)",
+        overflow: "hidden",
+      }}
+    >
+      <button
+        type="button"
+        onClick={toggle}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          padding: "9px 12px",
+          background: "transparent",
+          border: "none",
+          color: "var(--text, #e6e8ec)",
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        <span>思考过程（{entries.length} 段 · {totalChars} 字）</span>
+        <span style={{ color: "var(--muted, #888)", fontWeight: 400, fontSize: 12 }}>
+          {open ? "收起 ▲" : "展开 ▼"}
+        </span>
+      </button>
+
+      {open && (
+        <div style={{ padding: "0 12px 12px" }}>
+          {entries.map((e, i) => (
+            <ThinkingEntry key={i} entry={e} playing={playing} first={i === 0} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ResultPanel({ result, onReroll }) {
   const { seed, concept, plan, output, output_kind, archived, tts_info, model_used, caption, image_url, env_warning } = result;
 
   return (
     <div className="result">
       <div className="seed-pill">seed: {seed}</div>
+
+      <ThinkingPanel reasoning={result.reasoning} />
 
       <h3>概念卡（创意 Agent）</h3>
       <div className="concept">{concept}</div>

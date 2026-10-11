@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import ModeSelector from "./components/ModeSelector.jsx";
-import ResultPanel from "./components/ResultPanel.jsx";
+import ResultPanel, { LiveThinkingPanel } from "./components/ResultPanel.jsx";
 import ConfigPanel from "./components/ConfigPanel.jsx";
 import HistoryPanel from "./components/HistoryPanel.jsx";
 import ErrorBoundary from "./ErrorBoundary.jsx";
 import { fetchJson, postJson } from "./lib/http.js";
+import { subscribeTaskStream } from "./lib/sse.js";
 
 export default function App() {
   const [tab, setTab] = useState("box"); // box | history | config
@@ -17,6 +18,11 @@ export default function App() {
   // 异步开盒任务进度
   const [task, setTask] = useState(null);
   const pollRef = useRef(null);
+  const sseRef = useRef(null);
+  // SSE 实时思考流：[{stage, model, text}]，开盒过程中逐字增长
+  const [liveStreams, setLiveStreams] = useState([]);
+  // SSE 降级提示（后端未重启 / 代理不支持时可见，否则用户只看到进度条不知为何）
+  const [streamNote, setStreamNote] = useState(null);
   // 批量开盒
   const [batchCount, setBatchCount] = useState(3);
   const [batchTasks, setBatchTasks] = useState([]);
@@ -55,6 +61,15 @@ export default function App() {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
+    // SSE 与轮询并存（轮询兜底），停止时一并关闭
+    if (sseRef.current) {
+      try {
+        sseRef.current.close();
+      } catch (e) {
+        /* ignore */
+      }
+      sseRef.current = null;
+    }
   };
   useEffect(() => stopPoll, []); // 卸载时清理
 
@@ -91,7 +106,58 @@ export default function App() {
       setError("服务未返回 task_id，请检查后端版本");
       return;
     }
-    // 2) 轮询进度
+    // 2) SSE 实时思考流（轮询仍并行保留作兜底）
+    setLiveStreams([]);
+    setStreamNote(null);
+    sseRef.current = subscribeTaskStream(
+      taskId,
+      {
+        onStage: (stage, label) => {
+          setTask((prev) => (prev ? { ...prev, stage_label: label } : prev));
+        },
+        onReasonStart: (stage, model) => {
+          setLiveStreams((prev) => {
+            // 同一阶段的重复 start 不新开一段（后端已去重，这里再兜一层）
+            if (prev.length && prev[prev.length - 1].stage === stage) return prev;
+            return [...prev, { stage, model, text: "" }];
+          });
+        },
+        onDelta: (text) => {
+          setLiveStreams((prev) => {
+            if (prev.length === 0) return [{ stage: "模型思考", model: "", text }];
+            const next = prev.slice();
+            const last = { ...next[next.length - 1] };
+            last.text = (last.text || "") + text;
+            next[next.length - 1] = last;
+            return next;
+          });
+        },
+        onDone: (result) => {
+          // 终态以 SSE 的 result 为准（比轮询更早拿到，省一个 1.2s）
+          stopPoll();
+          setLoading(false);
+          setTask(null);
+          if (result) setResult(result);
+          else setError("任务完成但结果为空");
+        },
+        onError: (msg, d) => {
+          // 仅终态 error/cancelled 会带 payload；连接层错误交给 onFallback
+          if (!d) return;
+          stopPoll();
+          setLoading(false);
+          setTask(null);
+          setError(d.type === "cancelled" ? "任务已取消。" : "开盲盒失败: " + (d.error || msg));
+        },
+        onFallback: () => {
+          // SSE 不可用（后端未重启 / 代理不支持）——给可见提示，
+          // 否则用户只看到进度条却不知道思考流为什么没出来。
+          setStreamNote("实时思考流不可用（后端可能需要重启），已自动降级为进度条模式");
+        },
+      },
+      { fallbackMs: 8000 }
+    );
+
+    // 3) 轮询进度（SSE 不可用/中断时的兜底，两者并存不冲突）
     const poll = async () => {
       let t;
       try {
@@ -378,6 +444,13 @@ export default function App() {
                 取消
               </button>
             </div>
+          )}
+          {/* 实时思考流：SSE 推来的思考增量，任务结束后由结果面板的静态思考面板接管 */}
+          {loading && liveStreams.length > 0 && (
+            <LiveThinkingPanel streams={liveStreams} live />
+          )}
+          {loading && streamNote && (
+            <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>⚠️ {streamNote}</div>
           )}
           {error && <div className="error">{error}</div>}
           {batchError && <div className="error">{batchError}</div>}

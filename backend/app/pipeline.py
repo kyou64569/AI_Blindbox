@@ -12,6 +12,7 @@ from typing import Callable
 
 from .config import get_settings
 from .models import BlindBoxResult, FallbackExhausted, TaskCancelled
+from .thinking import _ReasoningSession, _delta_scope, _reasoning_snapshot, _reasoning_stage
 from .token_usage import _TokenUsageSession, _accrue_usage, _usage_accum
 from .tools import validate_mode_config
 
@@ -24,6 +25,7 @@ def run_blind_box(
     *,
     on_stage: "Callable[[str, str], None] | None" = None,
     should_cancel: "Callable[[], bool] | None" = None,
+    on_delta: "Callable[[str], None] | None" = None,
 ) -> BlindBoxResult:
     """跑一次完整的开盒管道（创意 -> 规划 -> 执行 -> 归档）。
 
@@ -33,6 +35,8 @@ def run_blind_box(
       on_stage      阶段回调 (stage, label)，stage 取值 creative/planner/executor，
                     供异步任务层更新进度（同步调用可忽略）
       should_cancel 每阶段切换前调用，返回 True 则抛 TaskCancelled 中断
+      on_delta      思考增量回调(text)，供 SSE 实时推送模型思考过程；
+                    传入后模型调用自动切流式，不传则走非流式
 
     返回 BlindBoxResult；被取消时抛 TaskCancelled（不归档）。
     """
@@ -69,7 +73,7 @@ def run_blind_box(
         )
 
     # token 用量追踪作用域：整个管道（创意/规划/执行/重试）的模型调用都累加到这里
-    with _TokenUsageSession() as usage_acc:
+    with _TokenUsageSession() as usage_acc, _ReasoningSession() as reason_bucket:
         # 1) 创意 Agent
         if should_cancel and should_cancel():
             raise TaskCancelled()
@@ -87,7 +91,8 @@ def run_blind_box(
                 "请只描述可被单帧静态画面表现的内容——构图、角色、表情、姿态、色彩、氛围、光影；"
                 "不要描述动态效果、运动、动画、眨眼、飘动、弹跳、转场等仅能在视频或 GIF 中表现的内容。"
             )
-        concept = _agent_call("creative", creative_sys, concept_in)
+        with _reasoning_stage("创意生成中"), _delta_scope(on_delta):
+            concept = _agent_call("creative", creative_sys, concept_in)
 
         # 2) 规划 Agent
         if should_cancel and should_cancel():
@@ -110,7 +115,8 @@ def run_blind_box(
                     f"\n（系统已锁定本视频总时长约为 {dur} 秒，请据此规划分镜与标注，"
                     f"不要自行更改总时长。）"
                 )
-            plan = _agent_call("planner", planner_sys, plan_in, mode=mode)
+            with _reasoning_stage("规划生成中"), _delta_scope(on_delta):
+                plan = _agent_call("planner", planner_sys, plan_in, mode=mode)
 
         # 3) 执行 Agent
         output_kind = mode.get("output_handler", "text")
@@ -137,7 +143,8 @@ def run_blind_box(
                     "Python 标准库+少量 pip 包、Node+少量 npm 包。不要在正文中复述禁止项清单。\n\n"
                     f"请按以下格式收敛：\n{planner_tpl}"
                 )
-                retry = _agent_call("planner", planner_sys, retry_in, mode=mode)
+                with _reasoning_stage("规划生成中（重试）"), _delta_scope(on_delta):
+                    retry = _agent_call("planner", planner_sys, retry_in, mode=mode)
                 hits2, warns2 = _check_blocked_env(retry, mode)
                 if not hits2:
                     plan = retry
@@ -161,9 +168,12 @@ def run_blind_box(
             raise TaskCancelled()
         if on_stage:
             on_stage("executor", f"成品生成中（{executor_type}）")
-        result.output = _run_executor(executor_type, exec_plan, mode, result)
+        with _reasoning_stage(f"成品生成中（{executor_type}）"), _delta_scope(on_delta):
+            result.output = _run_executor(executor_type, exec_plan, mode, result)
         # 先落 token 用量，再归档 —— 归档记录要包含 usage 字段
         result.usage = dict(usage_acc)
+        # 思考内容：仅在模型实际返回 thinking/reasoning 时非空，否则 None
+        result.reasoning = _reasoning_snapshot(reason_bucket)
         # 4) 自动归档：落盘元数据 + 把易失的远程产物下载到本地
         try:
             result.archived = archive_result(result, mode_id)

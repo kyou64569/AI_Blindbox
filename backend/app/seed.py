@@ -16,7 +16,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from .agents import _call_with_fallback, _executor_creds, _resolve_models
+from .agents import _call_with_fallback, _executor_creds, _resolve_models, chat_text
 from .config import get_settings
 from .tools import _first_choice_text
 
@@ -306,19 +306,19 @@ def generate_pool_seed(dim: str, existing: list[str] | None = None, mode_id: str
     system, user, forbid_hint = _build_seed_prompt(dim, existing, tool)
 
     def call(creds: dict) -> str:
-        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=90, max_retries=0)
         last_err: Exception | None = None
         for _attempt in range(3):
             try:
-                resp = client.chat.completions.create(
-                    model=creds["model"],
-                    temperature=creds["temperature"] if creds["temperature"] is not None else 0.95,
-                    messages=[
+                text = _clean_seed_text(chat_text(
+                    creds,
+                    [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
-                )
-                text = _clean_seed_text(_first_choice_text(resp, "种子生成", creds["model"]))
+                    ctx="种子生成",
+                    timeout=90,
+                    default_temp=0.95,
+                ))
                 if not text:
                     _log.warning("[seed 生成] model=%s 第 %d 次返回空内容，重试",
                                  creds["model"], _attempt + 1)
@@ -460,18 +460,18 @@ def _generate_with_model(dim: str, existing: list[str], creds: dict, tool: bool 
     """用指定的单个模型凭据生成一条种子（不 fallback）。tool=True 时按工具池指导语生成。"""
     system, user, _ = _build_seed_prompt(dim, existing, tool)
 
-    client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=180, max_retries=0)
     for _attempt in range(2):
         try:
-            resp = client.chat.completions.create(
-                model=creds["model"],
-                temperature=creds.get("temperature") or 0.95,
-                messages=[
+            text = _clean_seed_text(chat_text(
+                creds,
+                [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-            )
-            text = _clean_seed_text(_first_choice_text(resp, "种子池刷新", creds["model"]))
+                ctx="种子池刷新",
+                timeout=180,
+                default_temp=0.95,
+            ))
             if not text:
                 _log.warning("[seed refresh] model=%s 第 %d 次返回空内容", creds["model"], _attempt + 1)
                 continue

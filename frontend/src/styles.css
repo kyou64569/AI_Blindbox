@@ -226,3 +226,6 @@ header.topbar h1 { font-size: 22px; font-weight: 600; margin: 0; }
   .mode-grid { grid-template-columns: repeat(2, 1fr); }
   .tab { padding: 5px 8px; font-size: 12px; }
 }
+
+/* 思考过程打字机光标 */
+@keyframes blink { 50% { opacity: 0; } }

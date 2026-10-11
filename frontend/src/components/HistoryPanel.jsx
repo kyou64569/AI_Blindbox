@@ -1,5 +1,6 @@
 import React from "react";
 import SandboxedHtmlFrame from "./SandboxedHtmlFrame.jsx";
+import { ThinkingPanel } from "./ResultPanel.jsx";
 import { outUrl, mediaSrc } from "../lib/paths.js";
 
 // 提取 spec 章节（【环境依赖清单】/【磁盘占用预估】等），取到下一个【章节】或结尾
@@ -285,6 +286,8 @@ export default function HistoryPanel({
                         .join(" · ")}
                     </div>
                   )}
+                  {/* 历史记录的思考过程：归档里一直有存，只是此前接口没返回 */}
+                  <ThinkingPanel reasoning={it.reasoning} />
                   <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 12, color: "var(--muted, #888)" }}>评分：</span>
                     {[1, 2, 3, 4, 5].map((n) => (

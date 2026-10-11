@@ -15,23 +15,45 @@ from openai import OpenAI
 
 # 注意：只导入 get_settings()，不要 `from .config import SETTINGS`。
 from .config import get_settings
+from .gemini import chat as _gemini_native_chat, is_gemini_native
 from .models import FallbackExhausted
+from .thinking import _DELTA_CTX, _model_scope, accrue_reasoning_text
 from .tools import _first_choice_text
+from .token_usage import _accrue_usage
 
 _log = logging.getLogger(__name__)
+
+# 思考强度合法取值（UI 下拉同款）；"default" 表示不注入任何思考参数
+_THINKING_VALUES = {"default", "off", "minimal", "low", "medium", "high"}
+
+# 流式 chunk 里承载思考增量的字段名（与 thinking._REASONING_FIELDS 对应）
+_REASONING_DELTA_FIELDS = ("reasoning_content", "reasoning", "thinking", "thinking_content")
+
+
+def _normalize_thinking(val: Any) -> str:
+    """规范化思考强度：非法/空值一律降级为 default（不注入参数）。"""
+    t = str(val or "").strip().lower()
+    return t if t in _THINKING_VALUES else "default"
 
 
 def _resolve_models(section: dict, global_: dict) -> list[dict]:
     """把某 section 的 models 列表解析为有序凭据列表。
 
-    每张卡片的 base_url/api_key/temperature 为空时回退组级，再回退 global。
-    跳过 model 为空的卡片。返回 [{model, base_url, api_key, temperature}, ...]。
+    每张卡片的 base_url/api_key/temperature/thinking 为空时回退组级，再回退 global。
+    跳过model 为空的卡片。返回 [{model, base_url, api_key, temperature, thinking}, ...]。
+
+    thinking（思考强度）默认值处理：
+      - 卡片显式给了非default 值 → 用它
+      - 卡片为 default/空 → 看组级，再看 global；都没有则 "default"（不注入）
+    Gemini 原生端点（is_gemini_native）会由调用方分流到原生 REST，
+    非 Gemini 厂商若填了非 default 思考强度，也会透传 reasoning_effort。
     """
     if not isinstance(global_, dict):
         global_ = {}
     gb = section.get("base_url")
     gk = section.get("api_key")
     gt = section.get("temperature")
+    gth = section.get("thinking")
     out: list[dict] = []
     for card in (section.get("models") or []):
         if not isinstance(card, dict):
@@ -46,11 +68,23 @@ def _resolve_models(section: dict, global_: dict) -> list[dict]:
         temp = card.get("temperature")
         if temp is None:
             temp = gt if gt is not None else 0.8
+        # 思考强度回退：卡片 -> 组级 -> global.default_thinking/global.thinking -> default（不注入参数）
+        th = _normalize_thinking(card.get("thinking"))
+        if th == "default":
+            for fallback in (gth, global_.get("default_thinking"), global_.get("thinking")):
+                cand = _normalize_thinking(fallback)
+                if cand != "default":
+                    th = cand
+                    break
+        base_url = _normalize_base_url(card.get("base_url") or gb or global_.get("base_url") or "")
         out.append({
             "model": m,
-            "base_url": _normalize_base_url(card.get("base_url") or gb or global_.get("base_url") or ""),
+            "base_url": base_url,
             "api_key": card.get("api_key") or gk or global_.get("api_key"),
             "temperature": temp,
+            "thinking": th,
+            # Gemini 原生端点标记：调用方据此走 :generateContent 而非 /chat/completions
+            "gemini_native": is_gemini_native(base_url),
         })
     return out
 
@@ -108,10 +142,162 @@ def _call_with_fallback(models: list[dict], call_fn, ctx: str = "") -> "Any":
     raise FallbackExhausted(ctx, last)
 
 
+def _thinking_kwargs(creds: dict) -> "dict[str, Any]":
+    """按思考强度生成 OpenAI 兼容层的思考参数。
+
+    - default → 不注入任何参数（用模型默认思考水平）
+    - off→ 不注入（OpenAI 兼容层无跨厂商通用的"关闭思考"参数；
+      填错会导致 400，故宁可不注入也不硬传）
+    - minimal / low / medium / high → reasoning_effort（Gemini OpenAI 兼容层、
+      OpenAI o-series、部分聚合网关均识别该字段）
+    """
+    th = _normalize_thinking(creds.get("thinking"))
+    if th in ("default", "off", ""):
+        return {}
+    return {"reasoning_effort": th}
+
+
+def _openai_stream_text(
+    creds: dict,
+    messages: "list[dict]",
+    temp: "float | None",
+    ctx: str,
+    timeout: float,
+    on_delta: Any,
+) -> str:
+    """OpenAI 兼容层流式调用：逐 chunk 回调思考增量，最后拼接正文。
+
+    思考增量来源：chunk 里 delta.reasoning_content / reasoning / thinking
+    （与 thinking._REASONING_FIELDS 同一批字段名）。
+    正文增量（delta.content）不在此回调——上层只关心思考的实时展示，
+    正文仍由最终拼接结果给出，避免上层做逐字渲染的复杂度。
+    """
+    client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=timeout, max_retries=0)
+    stream = client.chat.completions.create(
+        model=creds["model"],
+        temperature=temp,
+        messages=messages,
+        stream=True,
+        **_thinking_kwargs(creds),
+    )
+    parts: list[str] = []
+    usage_obj = None
+    # 思考增量同时收集两处：SSE 实时推送 + 归档 bucket。
+    # 只推 SSE 不归档会导致结果页「思考过程」只剩 Gemini 原生那一条
+    # （原生路径在 gemini.py 里调了 _accrue_reasoning，兼容层没调）。
+    thought_parts: list[str] = []
+    try:
+        for chunk in stream:
+            # 部分网关把 usage 放在最后一个 chunk（需显式 stream_options 才给）
+            u = getattr(chunk, "usage", None)
+            if u is not None:
+                usage_obj = chunk
+            choices = getattr(chunk, "choices", None) or []
+            if not choices:
+                continue
+            delta = getattr(choices[0], "delta", None)
+            if delta is None:
+                continue
+            piece = getattr(delta, "content", None)
+            if piece:
+                parts.append(piece)
+            for field in _REASONING_DELTA_FIELDS:
+                rt = getattr(delta, field, None)
+                if rt:
+                    s = str(rt)
+                    thought_parts.append(s)
+                    on_delta(s)
+                    break
+    except Exception as e:  # noqa: BLE001
+        # 流式中途失败：已收到的正文照样返回，让上层走 fallback 而不是全丢
+        if not parts:
+            raise
+        _log.warning("[stream %s] 中断但已有 %d 字正文: %s", ctx, sum(len(p) for p in parts), e)
+    finally:
+        try:
+            stream.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    if usage_obj is not None:
+        _accrue_usage(usage_obj, creds["model"])
+    # 把本次流式收集到的思考写入归档 bucket（结果页「思考过程」数据源）。
+    # 用 accrue_reasoning_text 而非 _accrue_reasoning：后者要从响应结构里
+    # 自行提取（认 reasoning_content / parts.thought / <think> 包裹），
+    # 而流式增量本身已是纯思考文本，没有标签也没有响应结构。
+    if thought_parts:
+        accrue_reasoning_text("".join(thought_parts), ctx, creds["model"])
+    text = "".join(parts)
+    if not text.strip():
+        raise RuntimeError(f"[{ctx or 'chat'}] model={creds['model']} 流式返回空内容")
+    return text
+
+
+def chat_text(
+    creds: dict,
+    messages: "list[dict]",
+    ctx: str = "",
+    timeout: float = 90.0,
+    default_temp: float = 0.8,
+    force_temp: "float | None" = None,
+    on_delta: Any = None,
+) -> str:
+    """统一的文本对话入口：自动在 Gemini 原生端点与 OpenAI 兼容层之间分流。
+
+    - creds["gemini_native"] 为真 → 走 :generateContent（支持 thinkingLevel + 思考摘要）
+    - 否则 → 走 OpenAI 兼容 /chat/completions，按 thinking 注入 reasoning_effort
+
+    温度优先级：force_temp（调用点硬编码）> creds 配置温度 > default_temp。
+    force_temp 用于保持既有行为——小说/游戏/代码等执行 Agent 原本就是写死温度的，
+    不应被用户配置悄悄改掉。
+
+    on_delta：可选的思考增量回调。传入后自动切到流式调用，模型吐出的思考
+    片段会实时回调给上层推给前端；不传则读 thinking 的 contextvar（pipeline
+    通过 _delta_scope 注入），两者都无才走非流式。
+
+    这样上层调用点只需换这一个函数，不必各自判断厂商。
+    """
+    # 未显式传回调时，读 pipeline 注入的 contextvar（这样 8 处调用点无需改签名）
+    if on_delta is None:
+        on_delta = _DELTA_CTX.get()
+
+    if force_temp is not None:
+        temp = force_temp
+    else:
+        temp = creds.get("temperature")
+        temp = default_temp if temp is None else temp
+
+    # 包 _model_scope 让 SSE 的 reasoning_start 能带上真实模型名
+    # （fallback 可能换模型，这里才知道实际用的是哪张卡片）。
+    # 非流式分支也必须在 scope 内：extractor 类调用方（如图片/音频工具）
+    # 会在归档思考时读 current_model()，缺了会记成空模型名。
+    with _model_scope(creds.get("model")):
+        if creds.get("gemini_native"):
+            if on_delta is not None:
+                text, _thoughts = _gemini_native_chat(
+                    creds, messages, temperature=temp, timeout=timeout, on_thought=on_delta,
+                )
+                return text.strip()
+            text, _thoughts = _gemini_native_chat(creds, messages, temperature=temp, timeout=timeout)
+            return text.strip()
+
+        if on_delta is not None:
+            return _openai_stream_text(creds, messages, temp, ctx, timeout, on_delta).strip()
+
+        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=timeout, max_retries=0)
+        resp = client.chat.completions.create(
+            model=creds["model"],
+            temperature=temp,
+            messages=messages,
+            **_thinking_kwargs(creds),
+        )
+        return _first_choice_text(resp, ctx or "chat", creds["model"]).strip()
+
+
 def _agent_call(agent_key: str, system: str, user: str, mode: dict | None = None) -> str:
     """调用单个文本类 Agent（创意 / 规划）。返回文本。支持多模型按序 fallback。
 
-    模型列表来自该 Agent 的 models 配置；每张卡片的 base_url/api_key/temperature
+    模型列表来自该 Agent 的 models 配置；每张卡片的 base_url/api_key/temperature/thinking
     为空时回退组级再到 global。优先真实接口，否则 mock。
     """
     settings = get_settings()
@@ -125,16 +311,16 @@ def _agent_call(agent_key: str, system: str, user: str, mode: dict | None = None
         return _mock_agent(agent_key, system, user, mode)
 
     def call(creds: dict) -> str:
-        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=90, max_retries=0)
-        resp = client.chat.completions.create(
-            model=creds["model"],
-            temperature=creds["temperature"] if creds["temperature"] is not None else 0.8,
-            messages=[
+        return chat_text(
+            creds,
+            [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
+            ctx=f"agent:{agent_key}",
+            timeout=90,
+            default_temp=0.8,
         )
-        return _first_choice_text(resp, f"agent:{agent_key}", creds["model"]).strip()
 
     out, _used = _call_with_fallback(models, call, ctx=f"agent:{agent_key}")
     return out
@@ -177,22 +363,20 @@ def _mock_agent(agent_key: str, system: str, user: str, mode: dict | None = None
 
 
 def _make_simple_call(models: list[dict], sys_prompt: str, usr_prompt: str):
-    """创建一个简单的 call 闭包，用于两步式生成。"""
+    """创建一个简单的 call 闭包，用于两步式生成。温度读卡片配置（缺失时回落 0.6）。"""
     def call(creds: dict) -> str:
-        client = OpenAI(base_url=creds["base_url"], api_key=creds["api_key"], timeout=120, max_retries=0)
-        # 使用配置的温度，默认 0.6
-        temp = creds.get("temperature", 0.6)
         for attempt in range(2):
             try:
-                resp = client.chat.completions.create(
-                    model=creds["model"],
-                    temperature=temp,
-                    messages=[
+                content = chat_text(
+                    creds,
+                    [
                         {"role": "system", "content": sys_prompt},
                         {"role": "user", "content": usr_prompt},
                     ],
+                    ctx="文本执行 Agent",
+                    timeout=120,
+                    default_temp=0.6,
                 )
-                content = _first_choice_text(resp, "文本执行 Agent", creds["model"]).strip()
                 if content:
                     return content
                 if attempt == 0:

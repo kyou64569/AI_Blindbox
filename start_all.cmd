@@ -23,7 +23,8 @@ echo ================================================
 echo.
 echo Starting services. This may take up to 20 seconds.
 echo Look for "AI Blind Box" on your taskbar for this window.
-echo A browser will open at http://127.0.0.1:5173 when ready.
+echo The actual URL will be printed below and opened automatically.
+echo   (port 5173 is used unless it's already taken, then 5174, 5175...)
 echo Press Ctrl+C to stop all services at any time.
 echo.
 

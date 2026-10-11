@@ -10,6 +10,7 @@ import re as _re  # 历史别名：与 pipeline.py 原文件一致，两写法�
 from pathlib import Path
 from typing import Any
 
+from .thinking import _accrue_reasoning
 from .token_usage import _accrue_usage
 
 
@@ -65,6 +66,7 @@ def _first_image_item(resp: Any, ctx: str, model: str = "") -> Any:
     冒泡后只剩一句 "list index out of range"，完全看不出是哪个模型、哪一步失败。
     """
     _accrue_usage(resp, model)  # 顺带累加 token 用量（无 usage 时静默跳过）
+    _accrue_reasoning(resp, ctx, model)  # 顺带收集思考内容（无 thinking 字段时静默跳过）
     data = getattr(resp, "data", None)
     if not data:
         # 有的供应商把拒绝原因放在这些字段里，尽量带出来便于定位
@@ -88,6 +90,7 @@ def _first_choice_text(resp: Any, ctx: str, model: str = "") -> str:
     统一在这里给出带上下文的错误信息。
     """
     _accrue_usage(resp, model)  # 顺带累加 token 用量（无 usage 时静默跳过）
+    _accrue_reasoning(resp, ctx, model)  # 顺带收集思考内容（无 thinking 字段时静默跳过）
     choices = getattr(resp, "choices", None)
     if not choices:
         finish = getattr(resp, "error", None) or getattr(resp, "message", None) or ""

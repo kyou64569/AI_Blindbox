@@ -16,6 +16,103 @@ function Field({ label, value, onChange, type = "text", placeholder = "" }) {
 }
 
 /**
+ * 温度输入框。
+ *
+ * 为什么不能用受控 `<input type="number">` + `Number(value)`：
+ * 输入 "0.8" 到 "0" 后立刻把 0 存回 state，浏览器此时再收到 "." 会认为
+ * "0." 不是合法数字而把 value 置空，小数点根本进不来（中文输入法下更明显）。
+ *
+ * 改为「本地字符串态 + 失焦提交」：编辑期间不碰外部 state，
+ * 用户可以自由输入 "0." / "0.8" / "1"，失焦或按回车时才解析成数字写入配置。
+ * 解析不通过（空/非法）时回退为 null，即"留空=用全局默认"。
+ */
+function TemperatureInput({ value, onChange, id }) {
+  const [draft, setDraft] = useState(() =>
+    value === null || value === undefined || value === "" ? "" : String(value)
+  );
+  const lastExternal = useRef(value);
+
+  // 外部值变化（如切换模型卡片/保存后重载）时同步回本地编辑态
+  useEffect(() => {
+    if (value === lastExternal.current) return;
+    lastExternal.current = value;
+    setDraft(value === null || value === undefined || value === "" ? "" : String(value));
+  }, [value]);
+
+  const commit = () => {
+    const s = draft.trim();
+    if (s === "") {
+      lastExternal.current = null;
+      onChange(null);
+      return;
+    }
+    const n = Number(s);
+    if (Number.isFinite(n)) {
+      lastExternal.current = n;
+      onChange(n);
+    } else {
+      // 非法输入：还原成当前有效值，不把垃圾写进配置
+      const cur = value === null || value === undefined || value === "" ? "" : String(value);
+      lastExternal.current = value;
+      setDraft(cur);
+    }
+  };
+
+  return (
+    <div className="form-row">
+      <label>温度 temperature（可选，留空=用全局/默认）</label>
+      <input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+        }}
+        placeholder="如 0.8"
+      />
+      <div className="note">支持 0 ~ 2 的小数，直接键入即可（如 0.8 / 1.2），回车或失焦生效。</div>
+    </div>
+  );
+}
+
+// 思考强度可选项：与后端 agents._THINKING_VALUES 一一对应
+// 说明：Gemini 3+ 用 thinkingLevel（不支持 thinkingBudget），"关闭"映射为 minimal
+// （Gemini 3 无法真正关闭思考）；非 Gemini 厂商走 reasoning_effort，default/off 不注入参数。
+const THINKING_OPTIONS = [
+  { value: "default", label: "默认（不指定，沿用模型默认思考水平）" },
+  { value: "off", label: "关闭（Gemini 3 映射为 minimal，最接近关闭）" },
+  { value: "low", label: "低（更快、更省 token）" },
+  { value: "medium", label: "中（平衡）" },
+  { value: "high", label: "高（推理最深，最慢）" },
+];
+
+// 思考强度下拉：默认收起说明，避免每张卡片都被大段文字撑高
+function ThinkingSelect({ value, onChange }) {
+  // 值收敛到合法选项：配置文件里若被手改成非法值（如 "HIGH"/"关闭"/乱码），
+  // 直接透传给<select> 会让下拉显示空白，这里兜底回 default。
+  const cur = THINKING_OPTIONS.some((o) => o.value === value) ? value : "default";
+  const hit = THINKING_OPTIONS.find((o) => o.value === cur);
+  return (
+    <div className="form-row">
+      <label>思考强度 thinking（可选）</label>
+      <select value={cur} onChange={(e) => onChange(e.target.value)}>
+        {THINKING_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      <div className="note">当前：{hit.label}。Gemini 3+ 原生端点用 thinkingLevel；其他厂商走 reasoning_effort。</div>
+    </div>
+  );
+}
+
+/**
  * 一组「模型配置」：base_url + api_key + 模型（可下拉选择 / 手填）。
  * basePath 指向该组在 config 中的路径前缀，例如 "agents.creative"。
  * keyMap 把界面字段映射到配置里的实际字段名（全局默认用 default_*，其余用 model/base_url/api_key）。
@@ -163,6 +260,7 @@ function ModelSlot({ title, note, basePath, keyMap, config, update }) {
           )}
           {err && <div className="error">{err}</div>}
         </div>
+        <ThinkingSelect value={get("thinking")} onChange={(v) => set("thinking", v)} />
       </div>
     </div>
   );
@@ -213,8 +311,7 @@ function ModelCard({ basePath, idx, card, total, config, update }) {
 
   const tv = getv("temperature");
   return (
-    <div className="config-form" style={{ marginTop: "10px", border: "1px solid var(--border)", borderRadius: "10px", padding: "12px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+    <div className="config-form" style={{ marginTop: "10px", border: "1px solid var(--border)", borderRadius: "10px", padding: "12px" }}>      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
         <div className="note" style={{ margin: 0 }}>模型 #{idx + 1}</div>
         <div style={{ display: "flex", gap: "6px" }}>
           <button type="button" className="save-btn" style={{ padding: "4px 8px", background: "transparent", color: "var(--muted)", borderColor: "var(--border)" }} disabled={idx === 0} onClick={() => swap(-1)} title="上移">↑</button>
@@ -241,11 +338,12 @@ function ModelCard({ basePath, idx, card, total, config, update }) {
       </div>
       <Field label="API Base URL" value={getv("base_url")} onChange={(v) => setv("base_url", v)} placeholder="留空=用全局默认" />
       <Field label="API Key" type="password" value={getv("api_key")} onChange={(v) => setv("api_key", v)} placeholder="留空=用全局默认" />
-      <div className="form-row">
-        <label>温度 temperature（可选，留空=用全局/默认）</label>
-        <input type="number" step="0.1" value={tv === "" || tv == null ? "" : tv}
-          onChange={(e) => setv("temperature", e.target.value === "" ? null : Number(e.target.value))} placeholder="如 0.8" />
-      </div>
+      <TemperatureInput
+        id={`temp-${basePath}-${idx}`}
+        value={tv}
+        onChange={(v) => setv("temperature", v)}
+      />
+      <ThinkingSelect value={getv("thinking")} onChange={(v) => setv("thinking", v)} />
     </div>
   );
 }
@@ -265,7 +363,7 @@ function ModelCards({ title, note, basePath, config, update }) {
   };
   const node = basePath.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), config);
   const models = (node && Array.isArray(node.models)) ? node.models : [];
-  const add = () => update(`${basePath}.models`, [...models, { _id: "card_" + Math.random().toString(36).slice(2), model: "", base_url: "", api_key: "", temperature: null }]);
+  const add = () => update(`${basePath}.models`, [...models, { _id: "card_" + Math.random().toString(36).slice(2), model: "", base_url: "", api_key: "", temperature: null, thinking: "default" }]);
   return (
     <div>
       <div className="section-title">{title}</div>
@@ -289,7 +387,7 @@ function ModelCards({ title, note, basePath, config, update }) {
 }
 
 
-const GLOBAL_KEYMAP = { model: "default_model", base_url: "default_base_url", api_key: "default_api_key" };
+const GLOBAL_KEYMAP = { model: "default_model", base_url: "default_base_url", api_key: "default_api_key", thinking: "default_thinking" };
 
 export default function ConfigPanel() {
   const [config, setConfig] = useState(null);
