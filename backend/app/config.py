@@ -11,8 +11,17 @@ from typing import Any
 
 import yaml
 
-# 项目根：本文件位于 backend/app/config.py，上溯一级到 backend
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# 项目根：本文件位于 backend/app/config.py，上溯一级到 backend。
+# 桌面版（PyInstaller）里 __file__ 会落到临时解压目录 _MEIPASS —— 只读且每次启动都变，
+# 若沿用会把 settings.yaml / output / data 写进去，配置里的 API Key 关窗即丢。
+# 因此允许桌面启动器用 BLINDBOX_HOME 显式指定可写的数据根目录。
+# 网页版不设置该环境变量 → 解析结果与改动前逐字节一致。
+_home_override = os.environ.get("BLINDBOX_HOME", "").strip()
+PROJECT_ROOT = (
+    Path(_home_override).expanduser().resolve()
+    if _home_override
+    else Path(__file__).resolve().parents[1]
+)
 
 # 大文件路径默认绑定到项目目录内，避免写入系统盘用户敏感目录
 DEFAULT_CACHE_DIR = PROJECT_ROOT / ".cache"
@@ -69,6 +78,16 @@ class Settings:
     def providers(self) -> dict[str, Any]:
         return self.raw.get("providers", {}) or {}
 
+    @property
+    def connections(self) -> list[dict[str, Any]]:
+        """可复用的连接池（base_url + api_key），供各模型槽位按 id 引用。
+
+        结构：[{id, name, base_url, api_key}]。老配置没有该字段时返回空列表，
+        所有槽位继续走自身 base_url/api_key 的老路径，行为不变。
+        """
+        conns = self.raw.get("connections")
+        return conns if isinstance(conns, list) else []
+
     def get_mode(self, mode_id: str) -> dict[str, Any] | None:
         for m in self.modes:
             if m.get("id") == mode_id:
@@ -100,6 +119,36 @@ def _normalize_section(section: "dict | None") -> "dict | None":
     else:
         section["models"] = []
     return section
+
+
+def build_connection_map(connections: Any) -> dict[str, dict[str, Any]]:
+    """把 connections 列表转成 {id: conn}，忽略没有 id 的脏数据。"""
+    out: dict[str, dict[str, Any]] = {}
+    for c in (connections or []):
+        if not isinstance(c, dict):
+            continue
+        cid = str(c.get("id") or "").strip()
+        if cid:
+            out[cid] = c
+    return out
+
+
+def conn_creds(
+    conn_map: dict[str, dict[str, Any]] | None,
+    ref: Any,
+    base_url: str = "",
+    api_key: str = "",
+) -> tuple[str, str]:
+    """按连接引用取凭据：ref 命中则用连接的 base_url/api_key，否则回退传入值。
+
+    悬空引用（引用了一个已删除的连接 id）不抛错、静默回退到槽位自身的值 ——
+    即使 settings.yaml 被手工改坏，也不会让整条 Agent 链起不来。
+    """
+    conn = (conn_map or {}).get(str(ref or "").strip())
+    if isinstance(conn, dict):
+        base_url = conn.get("base_url") or base_url
+        api_key = conn.get("api_key") or api_key
+    return base_url, api_key
 
 
 def load_settings(path: str | Path | None = None) -> Settings:

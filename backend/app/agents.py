@@ -14,10 +14,11 @@ from typing import Any
 from openai import OpenAI
 
 # 注意：只导入 get_settings()，不要 `from .config import SETTINGS`。
-from .config import get_settings
+from .config import build_connection_map, conn_creds, get_settings
 from .gemini import chat as _gemini_native_chat, is_gemini_native
 from .models import FallbackExhausted
 from .thinking import _DELTA_CTX, _model_scope, accrue_reasoning_text
+from .thinking_profiles import thinking_budget, thinking_kwargs
 from .tools import _first_choice_text
 from .token_usage import _accrue_usage
 
@@ -36,24 +37,43 @@ def _normalize_thinking(val: Any) -> str:
     return t if t in _THINKING_VALUES else "default"
 
 
-def _resolve_models(section: dict, global_: dict) -> list[dict]:
+def _resolve_models(section: dict, global_: dict, connections: list | None = None) -> list[dict]:
     """把某 section 的 models 列表解析为有序凭据列表。
 
     每张卡片的 base_url/api_key/temperature/thinking 为空时回退组级，再回退 global。
-    跳过model 为空的卡片。返回 [{model, base_url, api_key, temperature, thinking}, ...]。
+    跳过model 为空的卡片。返回 [{model, base_url, api_key, temperature, thinking,
+    thinking_profile, thinking_capability, ...}, ...]。
 
     thinking（思考强度）默认值处理：
       - 卡片显式给了非default 值 → 用它
       - 卡片为 default/空 → 看组级，再看 global；都没有则 "default"（不注入）
+    thinking_profile / thinking_capability（思考方言与能力声明）：
+      卡片 -> 组级 -> global.default_thinking_*，都没有则 None / "graded"。
+      未配置方言时走兼容默认，请求体与旧版逐字节一致。
     Gemini 原生端点（is_gemini_native）会由调用方分流到原生 REST，
-    非 Gemini 厂商若填了非 default 思考强度，也会透传 reasoning_effort。
+    非 Gemini 厂商按 thinking_profile 选择请求体字段（见 thinking_profiles.py）。
     """
     if not isinstance(global_, dict):
         global_ = {}
+    # 连接池：槽位（组级）或模型卡片可用 connection 引用共享的 base_url + api_key，
+    # 免去同一地址在十几个槽位里重复填写。引用命中则优先用连接凭据；
+    # 未配置或不命中（悬空引用）时退回槽位自身的值 —— 老配置行为完全不变。
+    if connections is None:
+        try:
+            connections = get_settings().connections
+        except Exception:  # 单例未就绪时降级为「无连接池」，不阻断解析
+            connections = []
+    conn_map = build_connection_map(connections)
     gb = section.get("base_url")
     gk = section.get("api_key")
+    gb, gk = conn_creds(conn_map, section.get("connection"), gb or "", gk or "")
     gt = section.get("temperature")
     gth = section.get("thinking")
+    # 思考方言 / 能力声明：空值视为「未配置」，继续沿回退链找
+    gprof = section.get("thinking_profile")
+    gcap = section.get("thinking_capability")
+    gmt = section.get("max_tokens")
+    gto = section.get("timeout")
     out: list[dict] = []
     for card in (section.get("models") or []):
         if not isinstance(card, dict):
@@ -76,13 +96,67 @@ def _resolve_models(section: dict, global_: dict) -> list[dict]:
                 if cand != "default":
                     th = cand
                     break
-        base_url = _normalize_base_url(card.get("base_url") or gb or global_.get("base_url") or "")
+        # 方言 / 能力声明：与 thinking 同款「卡片 -> 组级 -> global」回退。
+        # 非法方言值不做收敛（由 apply_thinking_profile 抛可读错误，指南 §7.5）；
+        # 保存配置时 main.py 另有白名单校验挡在入口。
+        raw_prof = (card.get("thinking_profile") or gprof
+                    or global_.get("default_thinking_profile")
+                    or global_.get("thinking_profile"))
+        prof = str(raw_prof).strip() if raw_prof else None
+        cap = (card.get("thinking_capability") or gcap
+               or global_.get("default_thinking_capability")
+               or global_.get("thinking_capability") or "graded")
+        # 卡片级连接引用优先于卡片自身的 base_url/api_key（连接 → 卡片 → 组级 → global）
+        c_url, c_key = conn_creds(
+            conn_map, card.get("connection"),
+            card.get("base_url") or "", card.get("api_key") or "",
+        )
+        # 全局回退读 default_* 优先，兼容手改 yaml 写裸键的情况（两种写法都生效）
+        base_url = _normalize_base_url(
+            c_url or gb or global_.get("default_base_url") or global_.get("base_url") or ""
+        )
+        # max_tokens 回退：卡片 -> 组级 -> global（default_max_tokens 优先）-> None（不下发）
+        mt = card.get("max_tokens")
+        if mt is None:
+            if gmt is not None:
+                mt = gmt
+            else:
+                mt = global_.get("default_max_tokens")
+                if mt is None:
+                    mt = global_.get("max_tokens")
+        if mt is not None:
+            try:
+                mt = int(mt)
+            except (TypeError, ValueError):
+                mt = None
+        if isinstance(mt, int) and mt <= 0:
+            mt = None
+        # timeout 回退：卡片 -> 组级 -> global（default_timeout 优先）-> None（用调用点默认）
+        to = card.get("timeout")
+        if to is None:
+            if gto is not None:
+                to = gto
+            else:
+                to = global_.get("default_timeout")
+                if to is None:
+                    to = global_.get("timeout")
+        if to is not None:
+            try:
+                to = float(to)
+            except (TypeError, ValueError):
+                to = None
+        if isinstance(to, (int, float)) and to <= 0:
+            to = None
         out.append({
             "model": m,
             "base_url": base_url,
-            "api_key": card.get("api_key") or gk or global_.get("api_key"),
+            "api_key": c_key or gk or global_.get("default_api_key") or global_.get("api_key"),
             "temperature": temp,
             "thinking": th,
+            "thinking_profile": prof,
+            "thinking_capability": cap,
+            "max_tokens": mt,
+            "timeout": to,
             # Gemini 原生端点标记：调用方据此走 :generateContent 而非 /chat/completions
             "gemini_native": is_gemini_native(base_url),
         })
@@ -143,18 +217,35 @@ def _call_with_fallback(models: list[dict], call_fn, ctx: str = "") -> "Any":
 
 
 def _thinking_kwargs(creds: dict) -> "dict[str, Any]":
-    """按思考强度生成 OpenAI 兼容层的思考参数。
+    """按思考方言生成 OpenAI 兼容层的请求参数。
 
-    - default → 不注入任何参数（用模型默认思考水平）
-    - off→ 不注入（OpenAI 兼容层无跨厂商通用的"关闭思考"参数；
-      填错会导致 400，故宁可不注入也不硬传）
-    - minimal / low / medium / high → reasoning_effort（Gemini OpenAI 兼容层、
-      OpenAI o-series、部分聚合网关均识别该字段）
+    具体实现收敛在 thinking_profiles.py 的 THINKING_PROFILES 注册表：
+    - 未配置方言 → 兼容默认 `effort-only`（档位 → reasoning_effort），
+      但 **off 不注入任何字段**，存量配置请求体逐字节不变；
+    - 显式配置方言 → 按该厂商的字段位置/形状/类型下发（含 NVIDIA NIM 的布尔 thinking，
+      以及 effort-only 下 off → reasoning_effort:"none"）；
+    - default（未设置）与 Gemini 原生端点一律不发任何思考参数。
     """
-    th = _normalize_thinking(creds.get("thinking"))
-    if th in ("default", "off", ""):
-        return {}
-    return {"reasoning_effort": th}
+    return thinking_kwargs(creds)
+
+
+def _max_tokens_kwargs(creds: dict) -> "dict[str, Any]":
+    """把 creds 里的 max_tokens 转成 OpenAI 兼容层的下发参数。
+
+    - 用户填了有效正整数 → 永远用户优先（不被思考预算覆盖）
+    - 未配置 → 仅「显式配置了思考方言」时按档位抬预算，防思考挤掉业务输出；
+      存量配置（无方言）不下发，沿用模型默认输出上限。
+    """
+    mt = creds.get("max_tokens")
+    if mt is not None:
+        try:
+            mt = int(mt)
+        except (TypeError, ValueError):
+            mt = None
+    if isinstance(mt, int) and mt > 0:
+        return {"max_tokens": mt}
+    budget = thinking_budget(creds)
+    return {"max_tokens": budget} if budget else {}
 
 
 def _openai_stream_text(
@@ -179,6 +270,7 @@ def _openai_stream_text(
         messages=messages,
         stream=True,
         **_thinking_kwargs(creds),
+        **_max_tokens_kwargs(creds),
     )
     parts: list[str] = []
     usage_obj = None
@@ -245,7 +337,7 @@ def chat_text(
     """统一的文本对话入口：自动在 Gemini 原生端点与 OpenAI 兼容层之间分流。
 
     - creds["gemini_native"] 为真 → 走 :generateContent（支持 thinkingLevel + 思考摘要）
-    - 否则 → 走 OpenAI 兼容 /chat/completions，按 thinking 注入 reasoning_effort
+    - 否则 → 走 OpenAI 兼容 /chat/completions，按 thinking_profile 注入厂商思考方言
 
     温度优先级：force_temp（调用点硬编码）> creds 配置温度 > default_temp。
     force_temp 用于保持既有行为——小说/游戏/代码等执行 Agent 原本就是写死温度的，
@@ -257,6 +349,13 @@ def chat_text(
 
     这样上层调用点只需换这一个函数，不必各自判断厂商。
     """
+    # timeout 配置优先：creds["timeout"] 覆盖调用点默认值。
+    # 卡片 -> 组级 -> global 回退已在 _resolve_models 解析进 creds["timeout"]；
+    # 未配置则为 None，沿用调用点传入的默认值（agent 90 / 文本执行 120 等）。
+    cfg_to = creds.get("timeout")
+    if isinstance(cfg_to, (int, float)) and cfg_to > 0:
+        timeout = float(cfg_to)
+
     # 未显式传回调时，读 pipeline 注入的 contextvar（这样 8 处调用点无需改签名）
     if on_delta is None:
         on_delta = _DELTA_CTX.get()
@@ -290,6 +389,7 @@ def chat_text(
             temperature=temp,
             messages=messages,
             **_thinking_kwargs(creds),
+            **_max_tokens_kwargs(creds),
         )
         return _first_choice_text(resp, ctx or "chat", creds["model"]).strip()
 
@@ -472,10 +572,36 @@ def _executor_creds(executor_type: str) -> list[dict]:
                 "api_key": ag.get("api_key") or g.get("default_api_key"),
                 "temperature": ag.get("temperature") or 0.7,
             })
+    # 终极兜底卡片：global 默认模型。max_tokens/timeout 读 default_*（卡片级兜底语义）。
+    _mt = g.get("default_max_tokens")
+    if _mt is not None:
+        try:
+            _mt = int(_mt)
+        except (TypeError, ValueError):
+            _mt = None
+    if isinstance(_mt, int) and _mt <= 0:
+        _mt = None
+    _to = g.get("default_timeout")
+    if _to is not None:
+        try:
+            _to = float(_to)
+        except (TypeError, ValueError):
+            _to = None
+    if isinstance(_to, (int, float)) and _to <= 0:
+        _to = None
+    _fb_url = _normalize_base_url(g.get("default_base_url") or g.get("base_url") or "")
     chain.append({
         "model": g.get("default_model", "agnes-free"),
-        "base_url": _normalize_base_url(g.get("default_base_url") or ""),
-        "api_key": g.get("default_api_key"),
+        "base_url": _fb_url,
+        "api_key": g.get("default_api_key") or g.get("api_key"),
         "temperature": None,
+        "max_tokens": _mt,
+        "timeout": _to,
+        # 思考配置同样兜底，否则全局配了方言时最后一跳会静默回到默认行为
+        "thinking": _normalize_thinking(g.get("default_thinking") or g.get("thinking")),
+        "thinking_profile": (str(g.get("default_thinking_profile") or g.get("thinking_profile") or "").strip() or None),
+        "thinking_capability": (str(g.get("default_thinking_capability") or g.get("thinking_capability") or "").strip() or "graded"),
+        # 兜底卡片的 base_url 也可能是 Gemini 原生端点，漏了会走错接口路径
+        "gemini_native": is_gemini_native(_fb_url),
     })
     return chain

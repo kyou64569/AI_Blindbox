@@ -27,6 +27,7 @@ from . import pipeline
 from .gemini import is_gemini_native
 from .gemini import list_models as gemini_native_list_models
 from .stream_bus import BROADCASTERS
+from .thinking_profiles import THINKING_CAPABILITIES, THINKING_PROFILE_KEYS
 from .tools import validate_mode_config
 
 app = FastAPI(title="AI 盲盒", version="0.1.0")
@@ -180,6 +181,7 @@ _ADMIN_TOKEN = (os.environ.get("BLINDBOX_ADMIN_TOKEN") or "").strip()
 # 让 load_settings/pipeline 在运行期各处炸掉。
 _ALLOWED_TOP_KEYS = {
     "global", "mock", "agents", "randomness", "modes", "providers", "paths",
+    "connections",
 }
 
 
@@ -235,6 +237,101 @@ def _validate_config_payload(cfg: Any) -> dict[str, Any]:
     dup = {i for i in ids if ids.count(i) > 1}
     if dup:
         raise HTTPException(status_code=400, detail=f"config.modes 存在重复 id: {sorted(dup)}")
+
+    # 思考方言 / 能力声明白名单（指南 §7.5）：未知方言若放到运行时才报错，
+    # 表现是「所有模型 fallback 耗尽」而非一条能读懂的配置笔误。
+    # 组级字段与每张模型卡片都要校验；global 的 default_thinking_* 同理。
+    def _check_thinking(node: Any, where: str) -> None:
+        if not isinstance(node, dict):
+            return
+        prof = node.get("thinking_profile")
+        if prof not in (None, "") and str(prof).strip() not in THINKING_PROFILE_KEYS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{where}.thinking_profile 未知: '{prof}'；可选值：{', '.join(sorted(THINKING_PROFILE_KEYS))}",
+            )
+        cap = node.get("thinking_capability")
+        if cap not in (None, "") and str(cap).strip().lower() not in THINKING_CAPABILITIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{where}.thinking_capability 未知: '{cap}'；可选值：{', '.join(sorted(THINKING_CAPABILITIES))}",
+            )
+        for i, card in enumerate(node.get("models") or []):
+            if isinstance(card, dict):
+                _check_thinking(card, f"{where}.models[{i}]")
+
+    for section_name in ("agents", "providers"):
+        section_map = cfg.get(section_name) or {}
+        if isinstance(section_map, dict):
+            for name, node in section_map.items():
+                _check_thinking(node, f"config.{section_name}.{name}")
+    g = cfg.get("global") or {}
+    if isinstance(g, dict):
+        # 运行时的回退链同时认 default_* 与裸键（见 agents._resolve_models），
+        # 两套都要校验：否则手改 yaml 写 global.thinking_profile: bogus 能过入口，
+        # 到运行时才在 apply_thinking_profile 抛错，表现为「fallback 耗尽」而非可读 400。
+        for fld, allowed in (
+            ("thinking_profile", THINKING_PROFILE_KEYS),
+            ("thinking_capability", THINKING_CAPABILITIES),
+        ):
+            for prefix in ("default_", ""):
+                key = prefix + fld
+                val = g.get(key)
+                if val in (None, ""):
+                    continue
+                norm = str(val).strip()
+                norm = norm.lower() if fld == "thinking_capability" else norm
+                if norm not in allowed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"config.global.{key} 未知: '{val}'；可选值：{', '.join(sorted(allowed))}",
+                    )
+    # 连接池：id 唯一 + 字段类型正确；槽位/卡片的 connection 引用必须指向真实存在的 id。
+    # 悬空引用在运行时只会静默回退到槽位自身的 base_url/key（配置看似生效实则没生效），
+    # 所以在保存入口就挡住并给出可读错误。
+    conns = cfg.get("connections")
+    if conns is not None:
+        if not isinstance(conns, list):
+            raise HTTPException(status_code=400, detail="config.connections 必须是数组")
+        seen_ids: set[str] = set()
+        for i, c in enumerate(conns):
+            if not isinstance(c, dict):
+                raise HTTPException(status_code=400, detail=f"config.connections[{i}] 必须是对象")
+            cid = str(c.get("id") or "").strip()
+            if not cid:
+                raise HTTPException(status_code=400, detail=f"config.connections[{i}].id 不能为空")
+            if not re.match(r"^[a-zA-Z0-9_-]{1,48}$", cid):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"config.connections[{i}].id 只能包含字母/数字/下划线/中划线（1-48 字符）: '{cid}'",
+                )
+            if cid in seen_ids:
+                raise HTTPException(status_code=400, detail=f"config.connections 存在重复 id: {cid}")
+            seen_ids.add(cid)
+            for fld in ("name", "base_url", "api_key"):
+                v = c.get(fld)
+                if v is not None and not isinstance(v, str):
+                    raise HTTPException(
+                        status_code=400, detail=f"config.connections[{i}].{fld} 必须是字符串"
+                    )
+        for sec_name in ("agents", "providers"):
+            sec_map = cfg.get(sec_name) or {}
+            if not isinstance(sec_map, dict):
+                continue
+            for name, node in sec_map.items():
+                if not isinstance(node, dict):
+                    continue
+                refs: list[tuple[str, Any]] = [("", node.get("connection"))]
+                for j, card in enumerate(node.get("models") or []):
+                    if isinstance(card, dict):
+                        refs.append((f".models[{j}]", card.get("connection")))
+                for where, ref in refs:
+                    rid = str(ref or "").strip()
+                    if rid and rid not in seen_ids:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"config.{sec_name}.{name}{where}.connection 引用了不存在的连接 '{rid}'",
+                        )
     return cfg
 
 
@@ -279,6 +376,8 @@ class SaveConfigRequest(BaseModel):
 class ModelsRequest(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
+    # 连接池 id：给出且未显式传 base_url/api_key 时，用该连接的凭据（README 已声明此用法）
+    connection: str | None = None
 
 
 class GenerateSeedRequest(BaseModel):
@@ -680,6 +779,17 @@ def list_models(req: ModelsRequest):
 
     original = (req.base_url or "").strip()
     api_key = (req.api_key or "").strip()
+    # 连接池引用：显式给了 base_url/api_key 时以它们为准，否则取连接里的凭据。
+    # 引用不存在的 id 直接 400（这里是显式 API 调用，不该像运行时那样静默回退）。
+    conn_ref = (req.connection or "").strip()
+    if conn_ref and (not original or not api_key):
+        cmap = config.build_connection_map(config.get_settings().connections)
+        if conn_ref not in cmap:
+            raise HTTPException(
+                status_code=400,
+                detail=f"未知的连接 id: '{conn_ref}'（请检查 config.connections）",
+            )
+        original, api_key = config.conn_creds(cmap, conn_ref, original, api_key)
     if not original:
         raise HTTPException(status_code=400, detail="base_url 不能为空")
     if not api_key:
@@ -1247,18 +1357,44 @@ def health():
     return {"status": "ok", "mock": config.get_settings().mock}
 
 
+def _tts_creds(prov: dict, base_url: str = "", api_key: str = "") -> tuple[str, str]:
+    """解析 providers.tts 的云端凭据。
+
+    优先级：显式入参 → 组级 base_url/api_key → 组级 connection → 各卡片的 connection。
+    凭据可能挂在组级，也可能只挂在某一张卡片上，只查第一张会漏（漏了音色下拉就是空的）。
+    """
+    base_url = (base_url or "").strip() or (prov.get("base_url") or "").strip()
+    api_key = (api_key or "").strip() or (prov.get("api_key") or "").strip()
+    if base_url and api_key:
+        return base_url, api_key
+    try:
+        cmap = config.build_connection_map(config.get_settings().connections)
+    except Exception:  # 单例未就绪时降级为「无连接池」
+        return base_url, api_key
+    cands = [prov.get("connection")] + [
+        c.get("connection") for c in (prov.get("models") or []) if isinstance(c, dict)
+    ]
+    for ref in cands:
+        if not str(ref or "").strip():
+            continue
+        base_url, api_key = config.conn_creds(cmap, ref, base_url, api_key)
+        if base_url and api_key:
+            break
+    return base_url, api_key
+
+
 @app.get("/api/tts/voices")
 def list_tts_voices(base_url: str = "", api_key: str = ""):
     """列出可用的 TTS 音色。
 
-    优先用 query 参数；若为空则回退到当前 settings.yaml 的 providers.tts 凭据。
+    优先用 query 参数；若为空则回退到当前 settings.yaml 的 providers.tts 凭据
+    （含组级 / 卡片级连接引用）。
     """
-    base_url = base_url.strip()
-    api_key = api_key.strip()
-    if not base_url or not api_key:
+    if not (base_url or "").strip() or not (api_key or "").strip():
         prov = (config.get_settings().providers.get("tts", {}) or {})
-        base_url = base_url or (prov.get("base_url") or "").strip()
-        api_key = api_key or (prov.get("api_key") or "").strip()
+        base_url, api_key = _tts_creds(prov, base_url, api_key)
+    base_url = (base_url or "").strip()
+    api_key = (api_key or "").strip()
 
     edge_voices: list[dict] = []
     try:

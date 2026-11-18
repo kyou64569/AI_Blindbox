@@ -91,13 +91,16 @@ def _model_path(model: str) -> str:
 def _build_thinking_config(thinking: str | None) -> "dict | None":
     """按思考强度构造 generationConfig.thinkingConfig。
 
-    - default / 空 → 不传该字段，用模型默认思考水平
-    - off→ minimal（Gemini 3 无法真正关闭思考，minimal 最接近）
+    - default / 空 → **必须落到 medium**（指南 §4，2026-11-03 真机实测）：
+      留空 thinkingConfig 时 Gemini 3.5 flash-lite 完全不思考、不返回 thought 块，
+      表现为「思考框恒空」。medium 是实测唯一对该系稳定生效的最低档；
+      low 对 flash-lite 不思考。故「未设置不写字段」的一般原则不适用于 Gemini。
+    - off → minimal（Gemini 3 无法真正关闭思考，minimal 最接近）
     - low / medium / high →对应thinkingLevel
     """
     key = (thinking or "").strip().lower()
     if not key or key == "default":
-        return None
+        return {"thinkingLevel": "medium", "includeThoughts": True}
     level = _THINKING_LEVEL_MAP.get(key)
     if not level:
         return None
@@ -263,6 +266,15 @@ def chat(
     gen_cfg: dict[str, Any] = {}
     if isinstance(temp, (int, float)):
         gen_cfg["temperature"] = float(temp)
+    # max_tokens 透传为 Gemini 原生 maxOutputTokens（OpenAI 兼容层用 max_tokens）
+    mt = creds.get("max_tokens")
+    if mt is not None:
+        try:
+            mt = int(mt)
+        except (TypeError, ValueError):
+            mt = None
+    if isinstance(mt, int) and mt > 0:
+        gen_cfg["maxOutputTokens"] = mt
     thinking_cfg = _build_thinking_config(creds.get("thinking"))
     if thinking_cfg:
         gen_cfg["thinkingConfig"] = thinking_cfg

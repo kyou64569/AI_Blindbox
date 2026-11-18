@@ -2,6 +2,36 @@ paths:
   cache_dir: .cache
   output_dir: output
   data_dir: data
+# 思考参数方言（模型卡片 > 组级 > 全局，逐级回退）：
+#   thinking_profile     厂商方言，未配置时走兼容默认 effort-only
+#                        （档位 → reasoning_effort；但 off 一个字段都不发，存量请求体逐字节不变）
+#     openai-native  Qwen3 / vLLM：顶层 enable_thinking
+#     chat-template  Agnes 3.0 / 小红书 Dots：chat_template_kwargs.enable_thinking（顶层无效）
+#     thinking-flag  MiniMax-M3：字符串 thinking:"enabled"/"disabled"
+#     thinking-type  腾讯混元 hy3/hy4：对象 thinking:{type:"enabled"/"disabled"}
+#     effort-only    仅 reasoning_effort —— 本项目兼容默认；
+#                    显式选它时 off → reasoning_effort:"none" 表达关闭
+#     thinking-mode  Intern-S1：布尔 thinking_mode，无强度档（字符串会 400）
+#     nvidia         NVIDIA NIM：布尔 thinking，无强度档（字符串会 400）
+#   thinking_capability  graded（真分级）| binary（只开关，thinking-mode/nvidia 必须）| none（不发参数）
+# 全局默认值键：default_thinking_profile / default_thinking_capability
+# 示例（写在某张模型卡片或某个 agents/providers 组内）：
+#   thinking: high
+#   thinking_profile: nvidia
+#   thinking_capability: binary
+# 连接池（可选）：把 base_url + api_key 抽成共享连接，模型卡片用 connection: <id> 引用。
+#   - 命中连接时以连接的地址/密钥为准，卡片自身的 base_url / api_key 可留空
+#   - 未配置 connections、或引用了不存在的 id 时，回退到卡片自身的值（老配置行为不变）
+#   - 优先级：连接 > 卡片 > 组级 > global
+# connections:
+#   - id: whale                  # 唯一标识：字母/数字/下划线/中划线，≤48 字符
+#     name: 鲸鱼云
+#     base_url: https://api.example.com/v1
+#     api_key: <YOUR_KEY_HERE>
+# 卡片引用示例：
+#   models:
+#     - model: deepseek-v4-flash
+#       connection: whale
 global:
   default_model: agnes-2.5-flash
   default_base_url: https://apihub.agnes-ai.com/v1
