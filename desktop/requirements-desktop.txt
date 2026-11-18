@@ -1,0 +1,8 @@
+# Desktop-only dependencies. Kept OUT of backend/requirements.txt on purpose:
+# the web version (start_all.cmd -> start.py -> uvicorn + serve.py) must stay untouched.
+# Install into the same venv so PyInstaller can collect all backend deps too:
+#   backend\.venv\Scripts\python.exe -m pip install -r desktop\requirements-desktop.txt
+pywebview>=6.0
+pyinstaller>=6.0
+# used by desktop/make_icon.py to generate app.ico
+pillow>=10.0

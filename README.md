@@ -17,10 +17,11 @@
 
 ## 特性一览
 
-- **3-Agent 管道**：创意（发散）→ 规划（收敛为固定格式）→ 执行（按模式分发），每个 Agent 可独立配置模型 / base_url / key / 温度
+- **3-Agent 管道**：创意（发散）→ 规划（收敛为固定格式）→ 执行（按模式分发），每个 Agent 可独立配置模型 / 连接 / 温度
 - **异步开盒 + 进度反馈**：`POST /api/open` 立即返回 `task_id`，前端轮询 `GET /api/task/{id}` 展示「创意生成中 → 规划生成中 → 成品生成中」进度条与已等待秒数；支持**取消**（`POST /api/task/{id}/cancel`，阶段间生效）
 - **批量开盒**：`POST /api/open-batch` 一次创建 1-6 个任务，前端并排展示进度与结果；**全局并发闸门**（同时最多 2 个任务执行，超出的排队）防止打爆模型 TPM 配额
 - **多模型按序 fallback**：每个 Agent / Provider 可配多个模型，前一个失败自动用下一个（模型卡片可增删、排序）
+- **连接池（credentials）**：`base_url` + `api_key` 抽成独立实体，模型卡片只写 `connection: <id>` 引用，改一处全局生效
 - **34 种模式**：图片 / Logo 设计 / 表情包 / 四格漫画 / 播客(短中长) / 视频 / 微小说 / 诗歌 / 角色卡 / 起名 / 谜题 / 代码盲盒 / 小游戏 / 歌词创作 / 封面设计 / 广告文案 / 插画故事 / 歌词+哼唱 / 对话 / 世界观 / 冷笑话 / 创意食谱 / 社交文案 / 塔罗占卜 / 八卦新闻 / 平行宇宙 / AI 算命 / 恐怖一句话 / 对比图 / 朋友圈 / 趣味测试 / 密码暗号 / 换装捏脸 / 视频分镜
 - **自定义模式**：前端「配置 → 模式管理 →＋ 新建模式」，表单校验（id 唯一 / executor_type / output_handler 枚举白名单），保存后立即可用
 - **种子池管理**：全局 4 维随机池（theme/style/constraint/twist）可手动增删、🎲 大模型生成单条、一键整体刷新；**代码模式另有独立「工具池」**
@@ -47,6 +48,7 @@ AI_Blindbox\
 │  │  ├─ token_usage.py  # contextvar token 用量追踪
 │  │  ├─ tools.py        # 纯工具：slugify / 结构化块提取 / 黑名单扫描 / 高度注入等
 │  │  ├─ agents.py       # 模型调用层：凭据解析 / fallback / mock
+│  │  ├─ thinking_profiles.py  # 思考参数方言注册表（7 种供应商方言 + 能力分级）
 │  │  ├─ seed.py         # 种子池：draw_seed / generate_pool_seed / 锚定检测
 │  │  ├─ executors.py    # 执行器：text / image / game / tts / story / song 等
 │  │  ├─ archive.py      # 结果归档 + 远程产物下载
@@ -65,7 +67,15 @@ AI_Blindbox\
 ├─ data\                 # 用户上传
 ├─ docs\                 # 设计文档（system_design.md、mermaid 图）
 ├─ start_all.cmd / start.py / stop.py / stop_all.cmd   # 一键启停
-└─ backend_run.cmd / frontend_run.cmd                  # 守护脚本（崩溃自愈）
+├─ backend_run.cmd / frontend_run.cmd                  # 守护脚本（崩溃自愈）
+└─ desktop\              # 桌面版（pywebview + PyInstaller；与网页版并存，互不干扰）
+   ├─ launcher.py        # 启动器：数据目录 / 单实例锁 / 进程内拉起前后端 / 屏幕中央开盒动画
+   ├─ native_splash.py   # 启动动画（Win32 分层窗口，开盒进度跟随真实加载速度）
+   ├─ splash_frames\     # 动画帧（make_splash_frames.py 生成）
+   ├─ build.spec         # PyInstaller 配置（onedir / onefile 由 spec 内开关切换）
+   ├─ build.cmd          # 一键打包：build.cmd [onedir | onefile | all]
+   ├─ check_artifacts.py # 构建后校验每个 exe 内嵌的 demo.html 是否与源一致
+   └─ dist\              # 产物：dist\AIBlindBox\AIBlindBox.exe（onedir）/ dist\AIBlindBox.exe（单文件）
 ```
 
 ## 快速启动（两种前端）
@@ -102,17 +112,45 @@ npm run dev            # http://127.0.0.1:5173 ，Vite 代理 /api -> 8000
 > **开发模式（Vite HMR）**：Git Bash 下 `DEV_MODE=1 ./start_all.sh` 且 `frontend/node_modules` 存在时，
 > 前端自动改用 Vite dev server（热更新）；缺失时回退 `serve.py`（demo.html）。
 
+## 桌面版（可选，不影响网页版）
+
+双击一个 exe 就能用：不用手动起服务、不开浏览器。内部复用同一套 FastAPI 应用与 `frontend/serve.py`
+（Range/206、SSE、产物下载等行为与网页版完全一致），配置沿用 `backend/settings.yaml`。
+
+```bash
+# 打包（首次，或改完前端之后）
+desktop\build.cmd            # 只出 onedir（快，推荐）
+desktop\build.cmd onefile    # 只出单文件
+desktop\build.cmd all        # 两个都出
+```
+
+| 产物 | 路径 | 特点 |
+|---|---|---|
+| onedir | `desktop\dist\AIBlindBox\AIBlindBox.exe` | 启动快（实测浮层 0.5s 内出现），需带同目录 `_internal\` |
+| 单文件 | `desktop\dist\AIBlindBox.exe` | 便于分发，启动稍慢（要先解压到临时目录） |
+
+> ⚠️ **两个产物各自内嵌一份 `frontend/demo.html`**，互不共享。只重建其中一个，另一个会一直显示旧界面
+> （表现为"UI 改动没生效"，实际是双击了旧包）。所以每次构建结束 `build.cmd` 会自动跑
+> `desktop/check_artifacts.py`，逐个打印内嵌 `demo.html` 的 md5 与源文件比对：`CURRENT` 是最新，
+> `STALE` 是旧包——**双击前先看这张表**。
+>
+> 首次运行若数据目录里没有 `settings.yaml`，会自动从 `settings.yaml.example` 复制一份
+> （默认数据目录就是 `backend\`，与网页版共用同一份配置）。
+
 ## 配置大模型
 
 ### 方式一：前端「配置」页（推荐）
 可视化编辑模型 / key / 种子池 / 代码工具池 / 自定义模式，保存后写回 `backend/settings.yaml`。要点：
-- **模型选择**：填好 base_url / api_key 后点「获取模型列表」拉取该供应商可用模型，从下拉选择（列表外的模型可通过「自定义」输入）
+- **连接池（推荐先建）**：「模型与连接」顶部维护 `connections`（名称 / base_url / api_key），下方所有模型槽位只选「连接」引用它。同一 key 只存一份，换供应商 / 换 key 改一处即全局生效；连接行带「测试」按钮（拉到模型列表即连通），删除连接时凭据会自动写回引用处，不会让模型失效
+- **模型选择**：选好连接（或直接填 base_url / api_key）后点「获取模型列表」拉取该供应商可用模型，从下拉选择（列表外的模型可通过「自定义」输入）
 - **多模型 fallback**：每个 Agent / Provider 可添加多张模型卡片（增删 / 排序），前一个失败自动用下一个
+- **槽位多也不难找**：每个槽位一行摘要（序号 / 模型名 / host / 温度），点击行才展开编辑，思考模式 / 预算 / 超时收在「高级」里；顶部搜索框按模型名 / host / 连接名过滤；左侧导航分组跳转；底部吸底条常驻「N 处未保存改动 / 撤销 / 保存」
 - **随机种子池**：全局 4 维池 + **代码模式独立工具池**（code 专用），均支持手动增删、🎲 生成新词条、一键刷新
 - **自定义模式**：「＋ 新建模式」表单（id 唯一、executor_type / output_handler 枚举校验），保存后立即可用
 - **成本估算**：`global.tokens_price` 每千 token 单价（¥），历史 / 统计页按此换算预估成本
 
 ### 方式二：直接编辑 `backend/settings.yaml`
+- `connections`：连接池 `[{id, name, base_url, api_key}]`；模型卡片写 `connection: <id>` 引用。解析优先级 **连接 > 卡片自带 > 组级 > `global.default_*`**，悬空引用静默回退而非报错
 - `global.default_*`：默认模型 / base_url / api_key（各 Agent / Provider 留空时回退）
 - `agents.creative / planner / executor`：三个 Agent 各自模型配置（温度：创意 ~0.9、规划 ~0.2、执行 ~0.8）
 - `providers.image / video / tts / game`：多模态模型（OpenAI 兼容）
@@ -147,7 +185,7 @@ npm run dev            # http://127.0.0.1:5173 ，Vite 代理 /api -> 8000
 | `GET  /api/export/{rid}/zip` | 按归档 id 打包下载 ZIP（归档 JSON + 成品文件） |
 | `GET  /api/stats` | 开盒统计（总数 / 成功率 / 模式 / 模型 / 评分 / 收藏 / token / 成本） |
 | `GET  /api/config` | 读取配置；`POST` 保存（写回 settings.yaml 并热更新） |
-| `POST /api/models` | 按 base_url + api_key 获取该供应商模型列表 |
+| `POST /api/models` | 获取某供应商的模型列表：传 `base_url` + `api_key`，或传 `connection: <id>` 复用连接池凭据 |
 | `POST /api/generate-seed` | 为某维度生成一条新种子（`{dimension, mode_id?}`，mode_id 指定时用该模式独立池） |
 | `POST /api/seed/refresh-all` | 一键刷新种子池（`{mode_id?}`，缺省刷全局） |
 | `GET  /api/tts/voices` | 列出可用 TTS 音色 |

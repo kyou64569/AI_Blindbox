@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AI 盲盒 · 启动中</title>
+<style>
+  :root{--bg:#0f1115;--accent:#7f77dd;--gold:#ffd76e;--text:#e6e8ec;--muted:#9aa0aa}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:radial-gradient(1000px 720px at 50% 42%,#1c1834 0%,#0f1115 72%);
+    color:var(--text);font-family:"Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+    overflow:hidden;transition:opacity .45s ease;
+  }
+  body.leaving{opacity:0}
+  .stage{position:relative;width:100%;height:100%;display:flex;flex-direction:column;
+         align-items:center;justify-content:center}
+  .aura{position:absolute;width:760px;height:760px;border-radius:50%;
+        background:radial-gradient(circle,rgba(127,119,221,.22),transparent 64%);
+        filter:blur(12px);animation:breathe 3.2s ease-in-out infinite}
+  .art{position:relative;width:440px;height:370px;display:grid;place-items:center}
+
+  /* 盒口射出的主光束 */
+  .beam{position:absolute;left:50%;bottom:148px;width:540px;height:430px;
+        transform:translateX(-50%) scaleY(0);transform-origin:bottom center;
+        clip-path:polygon(43% 100%,57% 100%,100% 0,0 0);
+        background:linear-gradient(to top,rgba(255,238,176,.95),rgba(171,151,255,.45) 46%,rgba(171,151,255,0));
+        opacity:0;filter:blur(7px);pointer-events:none}
+  .ray{position:absolute;left:50%;bottom:150px;width:5px;height:250px;
+       transform-origin:bottom center;transform:rotate(var(--r)) scaleY(0);
+       background:linear-gradient(to top,rgba(255,235,170,.9),transparent);
+       border-radius:99px;opacity:0;filter:blur(2px);pointer-events:none}
+  .spark{position:absolute;left:50%;bottom:168px;width:8px;height:8px;border-radius:50%;
+         background:var(--gold);box-shadow:0 0 14px 4px rgba(255,215,110,.7);
+         opacity:0;pointer-events:none}
+
+  .box{position:relative;width:320px;height:300px;z-index:2;
+       animation:float 2.6s ease-in-out infinite;
+       filter:drop-shadow(0 24px 28px rgba(0,0,0,.5))}
+  #lid{transform-origin:160px 152px;animation:lidHint 2.6s ease-in-out infinite}
+  .seam{animation:seamPulse 1.5s ease-in-out infinite}
+
+  .title{margin-top:2px;font-size:33px;font-weight:700;letter-spacing:.24em;
+         background:linear-gradient(90deg,#c9c1ff,#ffffff 48%,var(--gold));
+         -webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{margin-top:14px;font-size:14px;color:var(--muted);letter-spacing:.14em;min-height:20px}
+  .dots{display:inline-flex;gap:6px;margin-left:8px;vertical-align:middle}
+  .dots i{width:5px;height:5px;border-radius:50%;background:var(--accent);
+          animation:dot 1.2s ease-in-out infinite}
+  .dots i:nth-child(2){animation-delay:.18s}
+  .dots i:nth-child(3){animation-delay:.36s}
+  .err{display:none;max-width:620px;margin:18px auto 0;padding:12px 16px;font-size:12px;
+       line-height:1.7;color:#ff9a9a;background:rgba(226,75,74,.1);
+       border:1px solid rgba(226,75,74,.4);border-radius:10px;white-space:pre-wrap;word-break:break-word}
+  .hint{position:absolute;bottom:26px;font-size:11px;color:#5b6070;letter-spacing:.08em}
+
+  @keyframes breathe{0%,100%{opacity:.5;transform:scale(.9)}50%{opacity:1;transform:scale(1.08)}}
+  @keyframes float{0%,100%{transform:translateY(6px)}50%{transform:translateY(-6px)}}
+  @keyframes lidHint{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-9px) rotate(-1.5deg)}}
+  @keyframes seamPulse{0%,100%{opacity:.22}50%{opacity:.95}}
+  @keyframes dot{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.25)}}
+  @keyframes lidOpen{from{transform:translateY(0) rotate(0);opacity:1}
+                     to{transform:translateY(-124px) rotate(-14deg);opacity:0}}
+  @keyframes beamUp{from{transform:translateX(-50%) scaleY(0);opacity:0}
+                    to{transform:translateX(-50%) scaleY(1);opacity:1}}
+  @keyframes rayOut{from{transform:rotate(var(--r)) scaleY(0);opacity:0}
+                    to{transform:rotate(var(--r)) scaleY(1);opacity:.9}}
+  @keyframes sparkFly{0%{opacity:0;transform:translate(0,0) scale(.4)}
+                      18%{opacity:1}
+                      100%{opacity:0;transform:translate(var(--tx),var(--ty)) scale(1.25)}}
+
+  /* 服务就绪：开盖 → 光束迸发 → 星芒四射 → 淡出进入页面 */
+  body.opening .aura{animation:none;transform:scale(1.35);opacity:1}
+  body.opening .box{animation:none;transform:translateY(0)}
+  body.opening #lid{animation:lidOpen .62s cubic-bezier(.2,.8,.3,1) forwards}
+  body.opening .seam{animation:none;opacity:.9}
+  body.opening .beam{animation:beamUp .58s .1s ease-out forwards}
+  body.opening .ray{animation:rayOut .66s calc(.08s + var(--i)*.035s) ease-out forwards}
+  body.opening .spark{animation:sparkFly .95s calc(.12s + var(--i)*.055s) ease-out forwards}
+  body.opening .dots i{animation:none;opacity:.35}
+  body.error .box,body.error .aura,body.error .dots i{animation:none}
+  body.error .sub{color:#ff9a9a}
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="aura"></div>
+    <div class="art">
+      <div class="beam"></div>
+      <div class="rays" id="rays"></div>
+      <div id="sparks"></div>
+      <svg class="box" viewBox="0 0 320 300" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#ddd6ff"/>
+          </linearGradient>
+          <linearGradient id="side" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#c4b4fb"/><stop offset="1" stop-color="#9d86ea"/>
+          </linearGradient>
+          <linearGradient id="seamGlow" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#ffd76e" stop-opacity="0"/>
+            <stop offset=".5" stop-color="#fff3c4"/><stop offset="1" stop-color="#ffd76e" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <ellipse cx="160" cy="276" rx="116" ry="13" fill="#07060f" opacity=".55"/>
+        <!-- 盒身：正面 / 右侧面 / 顶面 -->
+        <polygon points="70,160 110,120 290,120 250,160" fill="#e9e3ff"/>
+        <polygon points="250,160 290,120 290,225 250,265" fill="url(#side)"/>
+        <rect x="70" y="160" width="180" height="105" rx="13" fill="url(#front)"/>
+        <!-- 盒缝透出的光 -->
+        <rect class="seam" x="74" y="188" width="172" height="4" rx="2" fill="url(#seamGlow)"/>
+        <line x1="70" y1="196" x2="250" y2="196" stroke="#d5cdf7" stroke-width="7"/>
+        <text x="160" y="243" text-anchor="middle" font-size="83" font-weight="bold"
+              font-family="Arial, sans-serif" fill="#6a4fd8">?</text>
+        <!-- 盒盖：opening 时掀开 -->
+        <g id="lid">
+          <polygon points="64,156 104,113 296,113 256,156" fill="#f6f3ff"/>
+          <polygon points="64,156 256,156 256,168 64,168" fill="#cfc4f8"/>
+          <polygon points="256,156 296,113 296,125 256,168" fill="#b6a4ef"/>
+          <line x1="64" y1="156" x2="256" y2="156" stroke="#ffffff" stroke-width="3" opacity=".9"/>
+        </g>
+      </svg>
+    </div>
+    <div class="title">AI 盲盒</div>
+    <div class="sub"><span id="sub">正在开启盲盒</span><span class="dots"><i></i><i></i><i></i></span></div>
+    <div class="err" id="err"></div>
+    <div class="hint">首次启动需要加载模型配置，请稍候</div>
+  </div>
+
+<script>
+(function () {
+  const t0 = Date.now();
+  const sub = document.getElementById('sub');
+  const err = document.getElementById('err');
+  let done = false;
+
+  // 12 道放射光 + 12 颗星芒，用 --r/--tx/--ty 做错落排布
+  const rays = document.getElementById('rays');
+  const sparks = document.getElementById('sparks');
+  for (let i = 0; i < 12; i++) {
+    const r = document.createElement('div');
+    r.className = 'ray';
+    r.style.setProperty('--r', (-55 + i * 10) + 'deg');
+    r.style.setProperty('--i', i);
+    rays.appendChild(r);
+
+    const s = document.createElement('div');
+    s.className = 'spark';
+    const a = (-160 + i * 30) * Math.PI / 180;
+    const dist = 110 + (i % 4) * 42;
+    s.style.setProperty('--tx', Math.round(Math.cos(a) * dist) + 'px');
+    s.style.setProperty('--ty', Math.round(Math.sin(a) * dist - 40) + 'px');
+    s.style.setProperty('--i', i);
+    if (i % 3 === 0) { s.style.background = '#ffffff'; s.style.boxShadow = '0 0 14px 4px rgba(255,255,255,.7)'; }
+    sparks.appendChild(s);
+  }
+
+  function enter(url) {
+    if (done) return;
+    done = true;
+    // 至少播放 2s 开盒动画，服务再快也不至于一闪而过
+    const wait = Math.max(0, 2000 - (Date.now() - t0));
+    setTimeout(function () {
+      document.body.classList.add('opening');
+      sub.textContent = '开启完成，正在进入';
+      setTimeout(function () { document.body.classList.add('leaving'); }, 640);
+      setTimeout(function () { window.location.href = url; }, 1080);
+    }, wait);
+  }
+
+  function fail(msg) {
+    if (done) return;
+    done = true;
+    document.body.classList.add('error');
+    sub.textContent = '启动失败，请查看 desktop.log';
+    err.style.display = 'block';
+    err.textContent = String(msg || '').split('\n').slice(-4).join(' ').slice(0, 260);
+  }
+
+  async function tick() {
+    if (done) return;
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) { setTimeout(tick, 120); return; }
+    try {
+      const s = await api.state();
+      if (s && s.status === 'ready' && s.url) { enter(s.url); return; }
+      if (s && s.status === 'error') { fail(s.error); return; }
+    } catch (e) { /* 注入初期可能尚未就绪，继续轮询 */ }
+    setTimeout(tick, 180);
+  }
+
+  setTimeout(function () { if (!done) sub.textContent = '仍在准备，请稍候'; }, 15000);
+
+  // 预览用：用浏览器打开 splash.html?demo=opening 可静态查看开盖终场（不轮询、不跳转）
+  if (location.search.indexOf('demo=opening') >= 0) {
+    done = true;
+    setTimeout(function () {
+      document.body.classList.add('opening');
+      sub.textContent = '开启完成，正在进入';
+    }, 300);
+    return;
+  }
+  tick();
+})();
+</script>
+</body>
+</html>

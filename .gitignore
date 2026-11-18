@@ -95,3 +95,17 @@ yarn-error.log*
 Thumbs.db
 Desktop.ini
 修复报告*.md
+
+# =============================================================================
+#  桌面端生成资产（可由 make_icon.py / make_splash_frames.py 完整重建，不入库）
+#  build.cmd 检测到文件缺失时会自动重新生成，因此提交生成结果没有意义。
+#  例外：app.ico 保留入库 —— build.spec 直接用该路径作为 PE 图标资源。
+# =============================================================================
+/desktop/splash_frames/
+/desktop/*.png
+# 一次性脚本与量测输出（`_` 前缀约定，与根目录 /_* 保持一致）
+/desktop/_*
+# PyInstaller 中间产物：build.cmd 构建到 dist_onedir/dist_onefile/build_* 再 move 发布，
+# 成功后才清理；构建失败路径会留下整个目录（`dist/`、`build/` 规则不匹配这些名字）。
+/desktop/dist_*/
+/desktop/build_*/
