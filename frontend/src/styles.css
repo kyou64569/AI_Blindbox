@@ -164,6 +164,103 @@ header.topbar h1 { font-size: 22px; font-weight: 600; margin: 0; }
 }
 .form-row textarea { min-height: 80px; resize: vertical; }
 .save-btn { padding: 10px 18px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; font-size: 14px; }
+.save-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ===== 配置页：左导航 + 分组内容（P0 台架） ===== */
+.cfg-layout { display: flex; gap: 16px; align-items: flex-start; }
+.cfg-nav {
+  position: sticky; top: 64px; flex: 0 0 130px; display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+}
+.cfg-nav-item {
+  padding: 7px 10px; border-radius: 8px; font-size: 13px; color: var(--muted); cursor: pointer;
+  border-left: 2px solid transparent; line-height: 1.35;
+}
+.cfg-nav-item:hover { color: var(--text); background: var(--panel-2); }
+.cfg-nav-item.active { color: var(--text); background: var(--panel-2); border-left-color: var(--accent); }
+.cfg-main { flex: 1 1 auto; min-width: 0; }
+.cfg-sec { scroll-margin-top: 74px; margin-bottom: 24px; }
+.cfg-sec-head { font-size: 15px; font-weight: 600; margin: 0 0 10px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.cfg-sec-hint { font-size: 11px; font-weight: 400; color: var(--muted); }
+.cfg-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+
+/* 模型槽位：单行摘要 + 点击展开 */
+.slot-list { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-top: 10px; }
+.slot-item { border-bottom: 1px solid var(--border); }
+.slot-item:last-child { border-bottom: none; }
+.slot-row { display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; }
+.slot-row:hover { background: var(--panel-2); }
+.slot-row.open { background: var(--panel-2); }
+.slot-idx { flex: 0 0 auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 16px; }
+.slot-name { flex: 0 0 auto; font-size: 13px; font-weight: 600; min-width: 58px; }
+.slot-model {
+  flex: 1 1 auto; min-width: 0; font-size: 12.5px; font-family: ui-monospace, Consolas, monospace;
+  color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.slot-model.empty { font-family: inherit; color: var(--muted); font-size: 12px; }
+.slot-meta { flex: 0 0 auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.slot-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
+.slot-dot.on { background: var(--accent-2); }
+.slot-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+.slot-body { padding: 2px 12px 14px; background: var(--panel-2); }
+/* 槽位分组：整行可点折叠，折叠态显示首个模型名做摘要 */
+.slot-group { margin-top: 8px; }
+.slot-group-head {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; min-height: 40px;
+}
+.slot-group-head:hover { background: var(--panel-2); }
+.slot-group-head.open {
+  border-bottom-left-radius: 0; border-bottom-right-radius: 0; background: var(--panel-2);
+}
+.slot-group-caret { flex: 0 0 auto; width: 10px; font-size: 11px; color: var(--muted); }
+.slot-group-title {
+  flex: 0 0 auto; font-size: 13px; font-weight: 600; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 34%;
+}
+.slot-group-count { flex: 0 0 auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.slot-group-model {
+  flex: 1 1 auto; min-width: 0; font-size: 12px; color: var(--text);
+  font-family: ui-monospace, Consolas, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.slot-group-model.empty { font-family: inherit; color: var(--muted); font-size: 11.5px; }
+.slot-group-meta { flex: 0 0 auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.slot-group-body {
+  margin-top: 0; padding: 10px 12px 12px; background: var(--panel-2);
+  border: 1px solid var(--border); border-top: none; border-radius: 0 0 10px 10px;
+}
+.slot-group-sep { font-size: 12px; color: var(--muted); margin: 16px 0 2px; padding-left: 2px; }
+.icon-btn {
+  padding: 2px 7px; border-radius: 6px; border: 1px solid var(--border); background: transparent;
+  color: var(--muted); font-size: 12px; cursor: pointer; line-height: 1.6;
+}
+.icon-btn:hover { color: var(--text); border-color: var(--accent); }
+.icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.icon-btn.danger { color: var(--danger); border-color: var(--danger); opacity: 0.85; }
+
+/* 高级字段折叠 */
+.adv-toggle { margin-top: 10px; font-size: 12px; color: var(--accent); cursor: pointer; user-select: none; display: inline-block; }
+.adv-body { margin-top: 10px; padding-top: 4px; border-top: 1px dashed var(--border); }
+
+/* 底部常驻保存条 */
+.cfg-savebar {
+  position: sticky; bottom: 0; z-index: 60; display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  margin-top: 20px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.35);
+}
+.cfg-savebar .sb-text { flex: 1 1 auto; font-size: 13px; color: var(--muted); }
+.cfg-savebar .sb-text.dirty { color: var(--accent); }
+
+@media (max-width: 760px) {
+  .cfg-layout { flex-direction: column; }
+  .cfg-nav { position: static; flex: 0 0 auto; flex-direction: row; width: 100%; overflow-x: auto; padding: 6px; }
+  .cfg-nav-item { white-space: nowrap; border-left: none; border-bottom: 2px solid transparent; }
+  .cfg-nav-item.active { border-left: none; border-bottom-color: var(--accent); }
+  .slot-name { min-width: 0; }
+  .slot-meta { display: none; }
+  .cfg-savebar { flex-wrap: wrap; }
+}
 .note { font-size: 12px; color: var(--muted); margin-top: 10px; }
 .paths { font-size: 12px; color: var(--muted); background: var(--panel-2); padding: 10px; border-radius: 8px; margin-top: 10px; }
 .error { color: var(--danger); font-size: 13px; margin-top: 10px; white-space: pre-wrap; line-height: 1.5; }

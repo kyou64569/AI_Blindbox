@@ -85,12 +85,83 @@
     .char-value{font-size:14px;color:var(--text);line-height:1.5;margin-top:2px}
     .config-form{background:var(--panel);border:1px solid var(--border);border-radius:12px;
       padding:18px;margin-top:12px}
+    /* ===== 配置页：左导航 + 分组内容（P0 台架） ===== */
+    .cfg-layout{display:flex;gap:16px;align-items:flex-start}
+    .cfg-nav{position:sticky;top:64px;flex:0 0 130px;display:flex;flex-direction:column;gap:2px;
+      padding:8px 6px;background:var(--panel);border:1px solid var(--border);border-radius:12px}
+    .cfg-nav-item{padding:7px 10px;border-radius:8px;font-size:13px;color:var(--muted);cursor:pointer;
+      border-left:2px solid transparent;line-height:1.35}
+    .cfg-nav-item:hover{color:var(--text);background:var(--panel-2)}
+    .cfg-nav-item.active{color:var(--text);background:var(--panel-2);border-left-color:var(--accent)}
+    .cfg-main{flex:1 1 auto;min-width:0}
+    .cfg-sec{scroll-margin-top:74px;margin-bottom:24px}
+    .cfg-sec-head{font-size:15px;font-weight:600;margin:0 0 10px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+    .cfg-sec-hint{font-size:11px;font-weight:400;color:var(--muted)}
+    .cfg-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+    /* 模型槽位：单行摘要 + 点击展开 */
+    .slot-list{background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-top:10px}
+    .slot-item{border-bottom:1px solid var(--border)}
+    .slot-item:last-child{border-bottom:none}
+    .slot-row{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer}
+    .slot-row:hover{background:var(--panel-2)}
+    .slot-row.open{background:var(--panel-2)}
+    .slot-idx{flex:0 0 auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:16px}
+    .slot-name{flex:0 0 auto;font-size:13px;font-weight:600;min-width:58px}
+    .slot-model{flex:1 1 auto;min-width:0;font-size:12.5px;font-family:ui-monospace,Consolas,monospace;
+      color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .slot-model.empty{font-family:inherit;color:var(--muted);font-size:12px}
+    .slot-meta{flex:0 0 auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+    .slot-dot{flex:0 0 auto;width:7px;height:7px;border-radius:50%;background:var(--border)}
+    .slot-dot.on{background:var(--accent-2)}
+    .slot-actions{display:flex;gap:4px;flex:0 0 auto}
+    .slot-body{padding:2px 12px 14px;background:var(--panel-2)}
+    /* 槽位分组：整行可点折叠，折叠态显示首个模型名做摘要 */
+    .slot-group{margin-top:8px}
+    .slot-group-head{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;
+      background:var(--panel);border:1px solid var(--border);border-radius:10px;min-height:40px}
+    .slot-group-head:hover{background:var(--panel-2)}
+    .slot-group-head.open{border-bottom-left-radius:0;border-bottom-right-radius:0;background:var(--panel-2)}
+    .slot-group-caret{flex:0 0 auto;width:10px;font-size:11px;color:var(--muted)}
+    .slot-group-title{flex:0 0 auto;font-size:13px;font-weight:600;white-space:nowrap;
+      overflow:hidden;text-overflow:ellipsis;max-width:34%}
+    .slot-group-count{flex:0 0 auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+    .slot-group-model{flex:1 1 auto;min-width:0;font-size:12px;color:var(--text);
+      font-family:ui-monospace,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .slot-group-model.empty{font-family:inherit;color:var(--muted);font-size:11.5px}
+    .slot-group-meta{flex:0 0 auto;font-size:11px;color:var(--muted);white-space:nowrap}
+    .slot-group-body{margin-top:0;padding:10px 12px 12px;background:var(--panel-2);
+      border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px}
+    .slot-group-sep{font-size:12px;color:var(--muted);margin:16px 0 2px;padding-left:2px}
+    .icon-btn{padding:2px 7px;border-radius:6px;border:1px solid var(--border);background:transparent;
+      color:var(--muted);font-size:12px;cursor:pointer;line-height:1.6}
+    .icon-btn:hover{color:var(--text);border-color:var(--accent)}
+    .icon-btn:disabled{opacity:.3;cursor:not-allowed}
+    .icon-btn.danger{color:var(--danger);border-color:var(--danger);opacity:.85}
+    /* 高级字段折叠 */
+    .adv-toggle{margin-top:10px;font-size:12px;color:var(--accent);cursor:pointer;user-select:none;display:inline-block}
+    .adv-body{margin-top:10px;padding-top:4px;border-top:1px dashed var(--border)}
+    /* 底部常驻保存条 */
+    .cfg-savebar{position:sticky;bottom:0;z-index:60;display:flex;align-items:center;flex-wrap:wrap;gap:10px;
+      margin-top:20px;padding:10px 14px;background:var(--panel);border:1px solid var(--border);
+      border-radius:12px;box-shadow:0 -8px 20px rgba(0,0,0,.35)}
+    .cfg-savebar .sb-text{flex:1 1 auto;font-size:13px;color:var(--muted)}
+    .cfg-savebar .sb-text.dirty{color:var(--accent)}
+    @media (max-width:760px){
+      .cfg-layout{flex-direction:column}
+      .cfg-nav{position:static;flex:0 0 auto;flex-direction:row;width:100%;overflow-x:auto;padding:6px}
+      .cfg-nav-item{white-space:nowrap;border-left:none;border-bottom:2px solid transparent}
+      .cfg-nav-item.active{border-left:none;border-bottom-color:var(--accent)}
+      .slot-name{min-width:0}
+      .slot-meta{display:none}
+      .cfg-savebar{flex-wrap:wrap}
+    }
     .form-row{display:flex;flex-direction:column;margin-bottom:14px}
     .form-row label{font-size:13px;color:var(--muted);margin-bottom:6px}
     .form-row input,.form-row select{background:var(--panel-2);border:1px solid var(--border);
       border-radius:8px;padding:8px 10px;color:var(--text);font-size:14px;font-family:inherit}
     .save-btn{padding:10px 18px;border-radius:8px;border:1px solid var(--accent);
       background:var(--accent);color:#fff;cursor:pointer;font-size:14px}
+    .save-btn:disabled{opacity:.45;cursor:not-allowed}
     .note{font-size:12px;color:var(--muted);margin-top:10px}
     .paths{font-size:12px;color:var(--muted);background:var(--panel-2);padding:10px;
       border-radius:8px;margin-top:10px;white-space:pre-line}
@@ -246,6 +317,15 @@
       const [config, setConfig] = useState(null);
       const [paths, setPaths] = useState({});
       const [saved, setSaved] = useState(false);
+      // 已保存快照：用于「未保存改动」计数 + 一键撤销（不参与渲染，仅比对）
+      const [savedSnap, setSavedSnap] = useState(null);
+      // 模型槽位展开态（key = 卡片路径，缺省=折叠）、高级字段展开态、当前导航高亮
+      const [openSlots, setOpenSlots] = useState({});
+      const [advOpen, setAdvOpen] = useState({});
+      const [cfgActive, setCfgActive] = useState("connect");
+      // 配置页搜索关键词 + 各连接的「测试连通」状态（id -> {state,count,err}）
+      const [cfgQuery, setCfgQuery] = useState("");
+      const [connTest, setConnTest] = useState({});
       const [poolUI, setPoolUI] = useState({ addText: {}, gen: {}, genErr: {} });
       const initialPoolRef = useRef(null);
       const [voices, setVoices] = useState({ edge: [], cloud: [], current: "" });
@@ -314,6 +394,7 @@
         }).catch(e => setError("加载模式失败: " + e.message));
         fetch("/api/config").then(r => r.json()).then(d => {
           setConfig(d.config); setPaths(d.paths || {});
+          try { setSavedSnap(JSON.parse(JSON.stringify(d.config))); } catch (e) { setSavedSnap(null); }
           if (initialPoolRef.current === null) initialPoolRef.current = d.config?.randomness?.pool || {};
           setTokensPrice(Number(d.config?.global?.tokens_price) || 0);
         }).catch(() => {});
@@ -619,8 +700,8 @@
       };
       // 角色卡：解析 "Name | xxx" 或 "Name: xxx" 格式的结构化文本 → [{label, value}]
       // 思考强度可选项：与后端 agents._THINKING_VALUES 一一对应
-      // 说明：Gemini 3+ 用 thinkingLevel（不支持 thinkingBudget），"关闭"映射为 minimal
-      // （Gemini 3 无法真正关闭思考）；非 Gemini 厂商走 reasoning_effort，default/off 不注入参数。
+      // 说明：Gemini 3+ 原生端点用 thinkingLevel（不支持 thinkingBudget），"关闭"映射为 minimal；
+      // OpenAI 兼容层由下方「思考参数方言」决定具体字段（不同网关写法不同）。
       const THINKING_OPTIONS = [
         { value: "default", label: "默认（不指定，沿用模型默认思考水平）" },
         { value: "off", label: "关闭（Gemini 3 映射为 minimal，最接近关闭）" },
@@ -628,6 +709,41 @@
         { value: "medium", label: "中（平衡）" },
         { value: "high", label: "高（推理最深，最慢）" },
       ];
+      // 思考参数方言：与后端 thinking_profiles.THINKING_PROFILES 一一对应。
+      // 新增厂商 = 后端注册表加一条 + 这里加一个选项，主流程零改动。
+      const THINKING_PROFILE_OPTIONS = [
+        { value: "", label: "默认（未设置）：仅 reasoning_effort", hint: "兼容旧配置，请求体不变；接新网关时选下方对应方言" },
+        { value: "openai-native", label: "openai-native · Qwen3 / vLLM", hint: "顶层 enable_thinking 开关；开启时附 reasoning_effort" },
+        { value: "chat-template", label: "chat-template · Agnes 3.0 / 小红书 Dots", hint: "chat_template_kwargs.enable_thinking；顶层字段会被忽略" },
+        { value: "thinking-flag", label: "thinking-flag · MiniMax-M3（字符串）", hint: "thinking:\"enabled\"/\"disabled\"，附 reasoning_effort" },
+        { value: "thinking-type", label: "thinking-type · 腾讯混元 hy3/hy4（对象）", hint: "thinking:{type:\"enabled\"/\"disabled\"}；与上一条同名不同形状" },
+        { value: "effort-only", label: "effort-only · 仅 reasoning_effort", hint: "off 发 reasoning_effort:\"none\"；无独立 thinking 开关" },
+        { value: "thinking-mode", label: "thinking-mode · Intern-S1（布尔）", hint: "thinking_mode:true/false，无强度档；须配 binary" },
+        { value: "nvidia", label: "nvidia · NVIDIA NIM（布尔）", hint: "thinking:true/false，无强度档；发字符串会 400；须配 binary" },
+      ];
+      const THINKING_CAPABILITY_OPTIONS = [
+        { value: "", label: "默认 graded（真分级）", hint: "low / medium / high 各自生效" },
+        { value: "graded", label: "graded · 真分级", hint: "低/中/高档分别下发" },
+        { value: "binary", label: "binary · 只支持开/关", hint: "低/中/高归一成满血 + 高预算；NVIDIA NIM / Intern-S1 必选" },
+        { value: "none", label: "none · 无思考能力", hint: "一个思考参数都不发" },
+      ];
+      // 通用下拉：值非法时回退到第一项（空 = 未配置），并显示当前项 hint
+      const dialectSelect = (opts, value, onPick, label) => {
+        const cur = opts.some(o => o.value === value) ? value : "";
+        const hit = opts.find(o => o.value === cur);
+        return html`
+          <div class="form-row">
+            <label>${label}</label>
+            <select value=${cur} onChange=${e => onPick(e.target.value)}>
+              ${opts.map(o => html`<option key=${o.value} value=${o.value}>${o.label}</option>`)}
+            </select>
+            <div class="note">${hit.hint}</div>
+          </div>`;
+      };
+      const profileSelect = (value, onPick) =>
+        dialectSelect(THINKING_PROFILE_OPTIONS, value, onPick, "思考参数方言 thinking_profile（按网关选择）");
+      const capabilitySelect = (value, onPick) =>
+        dialectSelect(THINKING_CAPABILITY_OPTIONS, value, onPick, "思考能力 thinking_capability");
       // 思考强度下拉：每张模型卡片一个，紧跟 temperature 之后
       const thinkingSelect = (value, onPick) => {
         // 值收敛到合法选项：配置文件里若被手改成非法值（如 "HIGH"/"关闭"/乱码），
@@ -640,7 +756,7 @@
             <select value=${cur} onChange=${e => onPick(e.target.value)}>
               ${THINKING_OPTIONS.map(o => html`<option key=${o.value} value=${o.value}>${o.label}</option>`)}
             </select>
-            <div class="note">当前：${hit.label}。Gemini 3+ 原生端点用 thinkingLevel；其他厂商走 reasoning_effort。</div>
+            <div class="note">当前：${hit.label}。Gemini 原生端点走 thinkingLevel；OpenAI 兼容层按下方「思考参数方言」注入字段。</div>
           </div>`;
       };
       // 温度输入框组件。
@@ -666,7 +782,13 @@
           const s = String(draft || "").trim();
           if (s === "") { lastExternal.current = null; onChange(null); return; }
           const n = Number(s);
-          if (isFinite(n)) { lastExternal.current = n; onChange(n); }
+          if (isFinite(n)) {
+            // 界面承诺 0~2，超范围直接收敛：否则 5 会原样写进配置发给供应商（多数端点 400）
+            const clamped = Math.min(2, Math.max(0, n));
+            lastExternal.current = clamped;
+            onChange(clamped);
+            if (clamped !== n) setDraft(String(clamped));
+          }
           else {
             // 非法输入：还原成当前有效值，不把垃圾写进配置
             const cur = value === null || value === undefined || value === "" ? "" : String(value);
@@ -685,6 +807,74 @@
               onKeyDown=${e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
               placeholder="如 0.8" />
             <div class="note">支持 0 ~ 2 的小数，直接键入即可（如 0.8 / 1.2），回车或失焦生效。</div>
+          </div>`;
+      };
+      // 最大输出 token 输入框：复用 temperature 的「本地字符串态 + 失焦提交」模式，
+      // 但解析为非负整数；空 -> null（留空=用模型默认上限）。
+      const MaxTokensInput = ({ value, onChange, id }) => {
+        const [draft, setDraft] = useState(() =>
+          value === null || value === undefined || value === "" ? "" : String(value));
+        const lastExternal = useRef(value);
+        useEffect(() => {
+          if (value === lastExternal.current) return;
+          lastExternal.current = value;
+          setDraft(value === null || value === undefined || value === "" ? "" : String(value));
+        }, [value]);
+        const commit = () => {
+          const s = String(draft || "").trim();
+          if (s === "") { lastExternal.current = null; onChange(null); return; }
+          const n = Number(s);
+          if (isFinite(n) && n > 0) { const v = Math.floor(n); lastExternal.current = v; onChange(v); }
+          else {
+            const cur = value === null || value === undefined || value === "" ? "" : String(value);
+            lastExternal.current = value;
+            setDraft(cur);
+          }
+        };
+        return html`
+          <div class="form-row">
+            <label>最大输出 token max_tokens（可选，留空=用模型默认上限）</label>
+            <input id=${id} type="text" inputMode="numeric" autocomplete="off"
+              value=${draft}
+              onInput=${e => setDraft(e.target.value)}
+              onBlur=${commit}
+              onKeyDown=${e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
+              placeholder="如 4096" />
+            <div class="note">限制模型单次输出的最大 token 数，正整数。留空则不限制，沿用模型默认上限。</div>
+          </div>`;
+      };
+      // 请求超时输入框：复用 temperature 的「本地字符串态 + 失焦提交」模式，
+      // 解析为正数（秒，允许小数）；空 -> null（留空=用调用点默认超时）。
+      const TimeoutInput = ({ value, onChange, id }) => {
+        const [draft, setDraft] = useState(() =>
+          value === null || value === undefined || value === "" ? "" : String(value));
+        const lastExternal = useRef(value);
+        useEffect(() => {
+          if (value === lastExternal.current) return;
+          lastExternal.current = value;
+          setDraft(value === null || value === undefined || value === "" ? "" : String(value));
+        }, [value]);
+        const commit = () => {
+          const s = String(draft || "").trim();
+          if (s === "") { lastExternal.current = null; onChange(null); return; }
+          const n = Number(s);
+          if (isFinite(n) && n > 0) { lastExternal.current = n; onChange(n); }
+          else {
+            const cur = value === null || value === undefined || value === "" ? "" : String(value);
+            lastExternal.current = value;
+            setDraft(cur);
+          }
+        };
+        return html`
+          <div class="form-row">
+            <label>请求超时 timeout（秒，可选，留空=用默认 90/120/180）</label>
+            <input id=${id} type="text" inputMode="decimal" autocomplete="off"
+              value=${draft}
+              onInput=${e => setDraft(e.target.value)}
+              onBlur=${commit}
+              onKeyDown=${e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
+              placeholder="如 180" />
+            <div class="note">单次 API 调用最长等待秒数。调大 max_tokens 且开启思考时，长输出可能超时，可在此调高。留空沿用默认。</div>
           </div>`;
       };
 
@@ -806,6 +996,196 @@
         finally { setStatsLoading(false); }
       };
 
+      // ---- 配置页：未保存改动计数 / 撤销 / 左侧导航 ----
+      const cloneCfg = (o) => { try { return JSON.parse(JSON.stringify(o)); } catch (e) { return null; } };
+      // 递归比对叶子差异，数组按整体长度变化计 1 处，其余逐元素递归
+      const countDiff = (a, b) => {
+        if (a === b) return 0;
+        if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return 1;
+        if (Array.isArray(a) !== Array.isArray(b)) return 1;
+        if (Array.isArray(a)) {
+          if (a.length !== b.length) return 1;
+          let n = 0;
+          for (let i = 0; i < a.length; i++) n += countDiff(a[i], b[i]);
+          return n;
+        }
+        const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+        let n = 0;
+        keys.forEach(k => { n += countDiff(a[k], b[k]); });
+        return n;
+      };
+      const dirtyCount = (savedSnap && config) ? countDiff(savedSnap, config) : 0;
+      const undoConfig = () => {
+        if (!savedSnap) return;
+        setConfig(cloneCfg(savedSnap));
+        setSaved(false);
+        setError(null);
+      };
+      const CFG_NAV = [
+        { id: "connect", label: "模型与连接" },
+        { id: "behavior", label: "行为与成本" },
+        { id: "seeds", label: "种子池" },
+        { id: "modes", label: "模式管理" },
+        { id: "storage", label: "存储与路径" },
+      ];
+      const jumpCfg = (id) => {
+        setCfgActive(id);
+        const el = document.getElementById("cfg-" + id);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      };
+      // 滚动联动高亮：取最后一个已滚过阈值线的分组
+      useEffect(() => {
+        if (tab !== "config") return;
+        const onScroll = () => {
+          let cur = CFG_NAV[0].id;
+          CFG_NAV.forEach(s => {
+            const el = document.getElementById("cfg-" + s.id);
+            if (el && el.getBoundingClientRect().top <= 130) cur = s.id;
+          });
+          setCfgActive(prev => (prev === cur ? prev : cur));
+        };
+        window.addEventListener("scroll", onScroll, { passive: true });
+        onScroll();
+        return () => window.removeEventListener("scroll", onScroll);
+      }, [tab]);
+      // 从 base_url 提取 host 用于摘要行展示
+      const slotHost = (u) => {
+        const s = (u || "").trim();
+        if (!s) return "";
+        try { return new URL(s.replace(/\/+$/, "")).host; }
+        catch (e) { return s.replace(/^https?:\/\//i, "").split("/")[0]; }
+      };
+      const toggleSlot = (k) => setOpenSlots(m => ({ ...m, [k]: !m[k] }));
+      const toggleAdv = (k) => setAdvOpen(m => ({ ...m, [k]: !m[k] }));
+
+      // ---- 连接池（connections）：共享的 base_url + api_key，供所有模型槽位按 id 引用 ----
+      const connList = () => (Array.isArray(config?.connections) ? config.connections : []);
+      const connById = (id) => connList().find(c => String(c.id ?? "").trim() === (id || "").trim()) || null;
+      const SLOT_SECTIONS = ["agents", "providers"];
+      // 统计某连接被多少个槽位/卡片引用
+      const connUsage = (id) => {
+        let n = 0;
+        SLOT_SECTIONS.forEach(sec => {
+          Object.values(config?.[sec] || {}).forEach(node => {
+            if (!node || typeof node !== "object") return;
+            (node.models || []).forEach(c => { if (c && c.connection === id) n++; });
+            if (node.connection === id) n++;
+          });
+        });
+        return n;
+      };
+      // 模型槽位卡片总数（用于顶部汇总）
+      const slotTotal = () => {
+        let n = 0;
+        SLOT_SECTIONS.forEach(sec => {
+          Object.values(config?.[sec] || {}).forEach(node => {
+            if (node && typeof node === "object" && Array.isArray(node.models)) n += node.models.length;
+          });
+        });
+        return n;
+      };
+      const addConnection = () => {
+        const id = "conn_" + Math.random().toString(36).slice(2, 8);
+        update("connections", [...connList(), { id, name: "新连接", base_url: "", api_key: "" }]);
+        setOpenSlots(m => ({ ...m, ["conn-" + id]: true }));
+        setCfgQuery("");
+      };
+      const updateConnection = (id, field, value) => {
+        update("connections", connList().map(c => (c.id === id ? { ...c, [field]: value } : c)));
+      };
+      // 删除连接：引用处「落地」凭据后再解除引用 —— 等价于撤销共享，
+      // 模型不会因为删掉连接而突然失去 base_url/key（否则下次开盒直接失败）。
+      const deleteConnection = (id) => {
+        const conn = connById(id) || {};
+        SLOT_SECTIONS.forEach(sec => {
+          Object.entries(config?.[sec] || {}).forEach(([k, node]) => {
+            if (!node || typeof node !== "object") return;
+            (node.models || []).forEach((c, i) => {
+              if (!c || c.connection !== id) return;
+              if (!(c.base_url || "").trim()) update(`${sec}.${k}.models.${i}.base_url`, conn.base_url || "");
+              if (!(c.api_key || "").trim()) update(`${sec}.${k}.models.${i}.api_key`, conn.api_key || "");
+              update(`${sec}.${k}.models.${i}.connection`, "");
+            });
+            if (node.connection === id) {
+              if (!(node.base_url || "").trim()) update(`${sec}.${k}.base_url`, conn.base_url || "");
+              if (!(node.api_key || "").trim()) update(`${sec}.${k}.api_key`, conn.api_key || "");
+              update(`${sec}.${k}.connection`, "");
+            }
+          });
+        });
+        update("connections", connList().filter(c => c.id !== id));
+        setConnTest(m => { const n = { ...m }; delete n[id]; return n; });
+      };
+      // 测试连通：直接复用 /api/models（能拉到模型列表即视为可用）
+      const testConnection = async (c) => {
+        setConnTest(m => ({ ...m, [c.id]: { state: "loading" } }));
+        try {
+          const resp = await fetch("/api/models", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ base_url: c.base_url || "", api_key: c.api_key || "" }),
+          });
+          let data = {};
+          try { data = await resp.json(); } catch (e) {}
+          if (!resp.ok) throw new Error(data.detail || ("HTTP " + resp.status));
+          const n = (data.models || []).length;
+          setConnTest(m => ({ ...m, [c.id]: n ? { state: "ok", count: n } : { state: "empty" } }));
+        } catch (e) {
+          setConnTest(m => ({ ...m, [c.id]: { state: "fail", err: e.message } }));
+        }
+      };
+      const renderConnections = () => {
+        const conns = connList();
+        return html`
+          <div style=${{ display: "flex", alignItems: "center", gap: "10px", margin: "2px 0 6px" }}>
+            <div class="cfg-sec-hint" style=${{ flex: "1 1 auto" }}>
+              供下方全部槽位复用，改一处即全局生效
+            </div>
+            <button type="button" class="icon-btn" onClick=${addConnection}>+ 新增连接</button>
+          </div>
+          ${conns.length === 0
+            ? html`<div class="config-form" style=${{ marginTop: "4px" }}><div class="note" style=${{ margin: 0 }}>还没有连接。加一个连接（base_url + api_key），下面所有模型槽位就能直接选用，不必逐个重复填写；改 key 只需改这一处。</div></div>`
+            : html`<div class="slot-list">
+                ${conns.map(c => {
+                  const t = connTest[c.id] || {};
+                  const used = connUsage(c.id);
+                  const k = "conn-" + c.id;
+                  const open = !!openSlots[k];
+                  return html`
+                    <div class="slot-item" key=${c.id}>
+                      <div class=${"slot-row" + (open ? " open" : "")} onClick=${() => toggleSlot(k)}>
+                        <span class=${"slot-dot" + (t.state === "ok" ? " on" : "")}></span>
+                        <span class="slot-name">${c.name || c.id}</span>
+                        <span class="slot-model">${c.base_url || "（未填 base_url）"}</span>
+                        <span class="slot-meta">${c.api_key ? "key ✓" : "无 key"}</span>
+                        <span class="slot-meta">${used} 引用</span>
+                        <span class="slot-actions" onClick=${e => e.stopPropagation()}>
+                          <button type="button" class="icon-btn" disabled=${t.state === "loading"}
+                            onClick=${() => testConnection(c)}>${t.state === "loading" ? "…" : "测试"}</button>
+                          <button type="button" class="icon-btn danger" onClick=${() => deleteConnection(c.id)}
+                            title=${"删除并清除 " + used + " 处引用"}>删</button>
+                        </span>
+                        <span class="slot-meta">${open ? "▾" : "▸"}</span>
+                      </div>
+                      ${t.state === "fail" && html`<div class="error" style=${{ padding: "0 12px 8px", margin: 0 }}>${t.err}</div>`}
+                      ${t.state === "ok" && html`<div class="note" style=${{ padding: "0 12px 8px", margin: 0, color: "var(--accent-2)" }}>连通正常，可用模型 ${t.count} 个</div>`}
+                      ${t.state === "empty" && html`<div class="note" style=${{ padding: "0 12px 8px", margin: 0 }}>接口可达，但未返回模型列表（部分厂商不开放 /models）</div>`}
+                      ${open && html`<div class="slot-body">
+                        <div class="form-row" style=${{ marginTop: "10px" }}><label>显示名称</label>
+                          <input value=${c.name || ""} onInput=${e => updateConnection(c.id, "name", e.target.value)}
+                            placeholder="如 鲸鱼云 / 阶跃" /></div>
+                        <div class="form-row"><label>API Base URL</label>
+                          <input value=${c.base_url || ""} onInput=${e => updateConnection(c.id, "base_url", e.target.value)}
+                            placeholder="https://api.example.com/v1" /></div>
+                        <div class="form-row"><label>API Key</label>
+                          <input type="password" value=${c.api_key || ""} onInput=${e => updateConnection(c.id, "api_key", e.target.value)}
+                            placeholder="sk-..." /></div>
+                        <div class="note" style=${{ margin: 0 }}>连接 id：<code>${c.id}</code>（改名不影响引用）</div>
+                      </div>`}
+                    </div>`;
+                })}
+              </div>`}`;
+      };
+
       const save = async () => {
         setError(null);
         try {
@@ -813,8 +1193,13 @@
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ config }),
           });
-          if (!resp.ok) throw new Error("保存失败");
+          if (!resp.ok) {
+            let detail = "保存失败（HTTP " + resp.status + "）";
+            try { const d = await resp.json(); if (d && d.detail) detail = typeof d.detail === "string" ? d.detail : JSON.stringify(d.detail); } catch (e) {}
+            throw new Error(detail);
+          }
           setSaved(true);
+          setSavedSnap(cloneCfg(config));
           // Reload voices after save to reflect the new config
           fetch("/api/tts/voices").then(r => r.json()).then(d => {
             setVoices({ edge: d.edge || [], cloud: d.cloud || [], current: d.current || "" });
@@ -982,9 +1367,11 @@
           // 嵌套解析 basePath（如 "agents.creative"），避免 config["agents.creative"] 直接索引为 undefined
           const resolve = (path, obj) => path.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), obj) || {};
           const node = resolve(basePath, config);
+          // 槽位若引用了连接，凭据以连接为准（与运行时 _resolve_models 的优先级一致）
+          const conn = connById(node.connection) || {};
           const body = {
-            base_url: node[keyMap.base_url] || config.global?.default_base_url || "",
-            api_key: node[keyMap.api_key] || config.global?.default_api_key || "",
+            base_url: conn.base_url || node[keyMap.base_url] || config.global?.default_base_url || "",
+            api_key: conn.api_key || node[keyMap.api_key] || config.global?.default_api_key || "",
           };
           const resp = await fetch("/api/models", {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -1024,16 +1411,36 @@
           </div>`;
       };
 
-      const renderModelSlot = ({ title, basePath, keyMap, config, update }) => {
+      const renderModelSlot = ({ title, note, basePath, keyMap, config, update }) => {
         // 嵌套解析 basePath（如 "agents.creative"），避免 config["agents.creative"] 直接索引为 undefined
         const node = basePath.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), config) || {};
         const st = slotState[basePath] || {};
         const getv = k => node[keyMap[k]] || "";
         const setv = (k, v) => update(basePath + "." + keyMap[k], v);
+        const advKey = "adv-" + basePath;
+        const adv = !!advOpen[advKey];
+        const advBadge = [
+          getv("thinking") && getv("thinking") !== "default" ? getv("thinking") : "",
+          getv("thinking_profile") || "",
+          getv("max_tokens") ? "max " + getv("max_tokens") : "",
+          getv("timeout") ? getv("timeout") + "s" : "",
+        ].filter(Boolean).join(" · ");
+        const slotOpen = !isCollapsed(basePath);
+        const mdl = (getv("model") || "").trim();
+        const host = slotHost(getv("base_url"));
         return html`
-          <div class="section-title">${title}</div>
-          <div class="config-form">
-            <div class="form-row"><label>API Base URL</label>
+          <div class="slot-group">
+            <div class=${"slot-group-head" + (slotOpen ? " open" : "")} onClick=${() => toggleCollapse(basePath)}>
+              <span class="slot-group-caret">${slotOpen ? "▾" : "▸"}</span>
+              <span class="slot-group-title">${title}</span>
+              ${mdl
+                ? html`<span class="slot-group-model">${mdl}</span>`
+                : html`<span class="slot-group-model empty">未配置 · 回退内置默认</span>`}
+              ${host ? html`<span class="slot-group-meta">${host}</span>` : ""}
+            </div>
+            ${slotOpen && html`<div class="slot-group-body">
+              ${note && html`<div class="note" style=${{ marginBottom: 8 }}>${note}</div>`}
+              <div class="form-row"><label>API Base URL</label>
               <input value=${getv("base_url")} onInput=${e => setv("base_url", e.target.value)} placeholder="留空=用全局默认" /></div>
             <div class="form-row"><label>API Key</label>
               <input type="password" value=${getv("api_key")} onInput=${e => setv("api_key", e.target.value)} placeholder="留空=用全局默认" /></div>
@@ -1049,31 +1456,58 @@
               ${(st.models||[]).length > 0 && html`<div class="note">已获取 ${st.models.length} 个模型，点下拉可随时改选。</div>`}
               ${st.err && html`<div class="error">${st.err}</div>`}
             </div>
-            ${thinkingSelect(getv("thinking"), v => setv("thinking", v))}
+            <div class="adv-toggle" onClick=${() => toggleAdv(advKey)}>
+              ${adv ? "▾" : "▸"} 高级：思考模式 / 预算 / 超时${advBadge ? "（" + advBadge + "）" : ""}
+            </div>
+            ${adv && html`<div class="adv-body">
+              ${thinkingSelect(getv("thinking"), v => setv("thinking", v))}
+              ${profileSelect(getv("thinking_profile"), v => setv("thinking_profile", v))}
+              ${capabilitySelect(getv("thinking_capability"), v => setv("thinking_capability", v))}
+              <${MaxTokensInput} id=${"maxtok-" + basePath} value=${getv("max_tokens")}
+                onChange=${v => setv("max_tokens", v)} />
+              <${TimeoutInput} id=${"to-" + basePath} value=${getv("timeout")}
+                onChange=${v => setv("timeout", v)} />
+            </div>`}
+            </div>`}
           </div>`;
       };
 
       // ---- 多模型卡片列表编辑器：折叠 / 手动排序↑↓ / 删除(无确认) / 新增 / 空提示 ----
       // 每个 section（如 agents.creative）在 config 中对应一个 models: [] 卡片数组，
       // 运行时按序 fallback（上一个失败自动用下一个）。折叠状态用 localStorage 持久化。
-      const KNOWN_MODEL_SECTIONS = ["agents.creative","agents.planner","agents.executor","providers.image","providers.video","providers.tts","providers.game"];
+      const KNOWN_MODEL_SECTIONS = ["global","agents.creative","agents.planner","agents.executor","providers.image","providers.video","providers.tts","providers.game"];
+      // 折叠状态按分组持久化。默认折叠：8 个分组全展开就是 8 屏，用户只需要看摘要。
+      const GRP_KEY = "mf:grp:";
       const [collapseMap, setCollapseMap] = useState({});
       useEffect(() => {
         const m = {};
         KNOWN_MODEL_SECTIONS.forEach(bp => {
-          const k = "mf:collapse:" + bp;
-          let v = false;
-          try { v = localStorage.getItem(k) === "1"; } catch (e) { v = false; }
+          const k = GRP_KEY + bp;
+          let v = true;
+          try { const raw = localStorage.getItem(k); if (raw !== null) v = raw === "1"; } catch (e) {}
           m[k] = v;
         });
         setCollapseMap(m);
       }, []);
-      const isCollapsed = (basePath) => !!collapseMap["mf:collapse:" + basePath];
+      // 初始化完成前也按「折叠」处理，避免首帧闪一下全展开
+      const isCollapsed = (basePath) => {
+        const k = GRP_KEY + basePath;
+        return (k in collapseMap) ? !!collapseMap[k] : true;
+      };
       const toggleCollapse = (basePath) => {
-        const k = "mf:collapse:" + basePath;
+        const k = GRP_KEY + basePath;
         const nv = !isCollapsed(basePath);
         try { localStorage.setItem(k, nv ? "1" : "0"); } catch (e) {}
         setCollapseMap(m => ({ ...m, [k]: nv }));
+      };
+      const setAllGroups = (collapsed) => {
+        const m = {};
+        KNOWN_MODEL_SECTIONS.forEach(bp => {
+          const k = GRP_KEY + bp;
+          m[k] = collapsed;
+          try { localStorage.setItem(k, collapsed ? "1" : "0"); } catch (e) {}
+        });
+        setCollapseMap(m);
       };
       const resolvePath = (path, obj) =>
         path.split(".").reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), obj) || {};
@@ -1101,59 +1535,124 @@
           update(basePath + ".models", arr.filter((_, i) => i !== idx));
         };
         const tv = getv("temperature");
+        const open = !!openSlots[cardPath];
+        const adv = !!advOpen["adv-" + cardPath];
+        const mdl = (getv("model") || "").trim();
+        const connId = (getv("connection") || "").trim();
+        const conn = connById(connId);
+        // 摘要行显示「生效地址」：选了连接就用连接地址，否则用卡片自身的
+        const host = slotHost(conn ? conn.base_url : getv("base_url"));
+        const advBadge = [
+          getv("thinking") && getv("thinking") !== "default" ? getv("thinking") : "",
+          getv("thinking_profile") || "",
+          getv("max_tokens") ? "max " + getv("max_tokens") : "",
+          getv("timeout") ? getv("timeout") + "s" : "",
+        ].filter(Boolean).join(" · ");
+        // 折叠态 = 单行摘要（序号 · 模型 · host · 温度 · 状态点 · 排序/删除）；点击整行展开编辑。
+        // 展开态只常显「模型 / base_url / key / 温度」，思考与预算收进「高级」折叠区。
         return html`
-          <div key=${card._id || idx} class="config-form" style=${{ marginTop:"10px", border:"1px solid var(--border)", borderRadius:"10px", padding:"12px" }}>
-            <div style=${{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"6px" }}>
-              <div class="note" style=${{ margin:0 }}>模型 #${idx + 1}</div>
-              <div style=${{ display:"flex", gap:"6px" }}>
-                <button type="button" class="save-btn" style=${{ padding:"4px 8px", background:"transparent", color:"var(--muted)", borderColor:"var(--border)" }}
-                  disabled=${idx === 0} onClick=${() => swap(-1)} title="上移">↑</button>
-                <button type="button" class="save-btn" style=${{ padding:"4px 8px", background:"transparent", color:"var(--muted)", borderColor:"var(--border)" }}
-                  disabled=${idx === total - 1} onClick=${() => swap(1)} title="下移">↓</button>
-                <button type="button" class="save-btn" style=${{ padding:"4px 8px", background:"var(--danger)", borderColor:"var(--danger)" }}
-                  onClick=${del} title="删除（无确认）">删除</button>
-              </div>
+          <div key=${card._id || idx} class="slot-item">
+            <div class=${"slot-row" + (open ? " open" : "")} onClick=${() => toggleSlot(cardPath)}>
+              <span class="slot-idx">${idx + 1}</span>
+              <span class=${"slot-model" + (mdl ? "" : " empty")}>${mdl || "（未填 · 回退上级默认）"}</span>
+              ${conn ? html`<span class="slot-meta" style=${{ color: "var(--accent-2)" }}>${conn.name || conn.id}</span>` : ""}
+              ${host ? html`<span class="slot-meta">${host}</span>` : ""}
+              ${(tv !== "" && tv != null) ? html`<span class="slot-meta">T ${tv}</span>` : ""}
+              <span class=${"slot-dot" + (mdl ? " on" : "")}></span>
+              <span class="slot-actions" onClick=${e => e.stopPropagation()}>
+                <button type="button" class="icon-btn" disabled=${idx === 0} onClick=${() => swap(-1)} title="上移">↑</button>
+                <button type="button" class="icon-btn" disabled=${idx === total - 1} onClick=${() => swap(1)} title="下移">↓</button>
+                <button type="button" class="icon-btn danger" onClick=${del} title="删除（无确认）">删</button>
+              </span>
+              <span class="slot-meta">${open ? "▾" : "▸"}</span>
             </div>
-            <div class="form-row"><label>模型 model</label>
-              <div style=${{ display:"flex", gap:"8px" }}>
-                ${picker({ key: "card-" + cardPath, value: getv("model"), options: st.models || [], onPick: v => setv("model", v),
-                  placeholder: "模型名，如 gpt-4o-mini-tts", emptyLabel: "（手填）" })}
-                <button type="button" class="save-btn" style=${{ padding:"8px 12px", whiteSpace:"nowrap" }}
-                  disabled=${st.fetching} onClick=${() => fetchModels(cardPath, { model:"model", base_url:"base_url", api_key:"api_key" })}>
-                  ${st.fetching ? "获取中…" : "获取列表"}</button>
+            ${open && html`<div class="slot-body">
+              <div class="form-row" style=${{ marginTop:"10px" }}><label>模型 model</label>
+                <div style=${{ display:"flex", gap:"8px" }}>
+                  ${picker({ key: "card-" + cardPath, value: getv("model"), options: st.models || [], onPick: v => setv("model", v),
+                    placeholder: "模型名，如 gpt-4o-mini-tts", emptyLabel: "（手填）" })}
+                  <button type="button" class="save-btn" style=${{ padding:"8px 12px", whiteSpace:"nowrap" }}
+                    disabled=${st.fetching} onClick=${() => fetchModels(cardPath, { model:"model", base_url:"base_url", api_key:"api_key" })}>
+                    ${st.fetching ? "获取中…" : "获取列表"}</button>
+                </div>
+                ${(st.models || []).length > 0 && html`<div class="note">已获取 ${st.models.length} 个模型，点下拉可随时改选。</div>`}
+                ${st.err && html`<div class="error">${st.err}</div>`}
               </div>
-              ${(st.models || []).length > 0 && html`<div class="note">已获取 ${st.models.length} 个模型，点下拉可随时改选。</div>`}
-              ${st.err && html`<div class="error">${st.err}</div>`}
-            </div>
-            <div class="form-row"><label>API Base URL</label>
-              <input value=${getv("base_url")} onInput=${e => setv("base_url", e.target.value)} placeholder="留空=用全局默认" /></div>
-            <div class="form-row"><label>API Key</label>
-              <input type="password" value=${getv("api_key")} onInput=${e => setv("api_key", e.target.value)} placeholder="留空=用全局默认" /></div>
-            <${TemperatureInput} id=${"temp-" + basePath + "-" + idx} value=${tv}
-              onChange=${v => setv("temperature", v)} />
-            ${thinkingSelect(getv("thinking"), v => setv("thinking", v))}
+              <div class="form-row"><label>连接（复用 base_url + api_key）</label>
+                <select value=${connId}
+                  onChange=${e => { const v = e.target.value; setv("connection", v); if (v) { setv("base_url", ""); setv("api_key", ""); } }}
+                  style=${{ height: "36px", background: "var(--panel)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: "8px", padding: "0 8px", fontSize: 13 }}>
+                  <option value="">（不用连接 · 下方手填）</option>
+                  ${connList().map(c => html`<option value=${c.id}>${c.name || c.id} — ${slotHost(c.base_url)}</option>`)}
+                </select>
+              </div>
+              ${conn
+                ? html`<div class="note" style=${{ margin: "-6px 0 12px" }}>走连接「${conn.name || conn.id}」：${conn.base_url || "（地址为空）"} · ${conn.api_key ? "key 已配置" : "key 未配置"}</div>`
+                : html`
+                  <div class="form-row"><label>API Base URL</label>
+                    <input value=${getv("base_url")} onInput=${e => setv("base_url", e.target.value)} placeholder="留空=用全局默认" /></div>
+                  <div class="form-row"><label>API Key</label>
+                    <input type="password" value=${getv("api_key")} onInput=${e => setv("api_key", e.target.value)} placeholder="留空=用全局默认" /></div>`}
+              <${TemperatureInput} id=${"temp-" + basePath + "-" + idx} value=${tv}
+                onChange=${v => setv("temperature", v)} />
+              <div class="adv-toggle" onClick=${() => toggleAdv("adv-" + cardPath)}>
+                ${adv ? "▾" : "▸"} 高级：思考模式 / 预算 / 超时${advBadge ? "（" + advBadge + "）" : ""}
+              </div>
+              ${adv && html`<div class="adv-body">
+                <${MaxTokensInput} id=${"maxtok-" + basePath + "-" + idx} value=${getv("max_tokens")}
+                  onChange=${v => setv("max_tokens", v)} />
+                <${TimeoutInput} id=${"to-" + basePath + "-" + idx} value=${getv("timeout")}
+                  onChange=${v => setv("timeout", v)} />
+                ${thinkingSelect(getv("thinking"), v => setv("thinking", v))}
+                ${profileSelect(getv("thinking_profile"), v => setv("thinking_profile", v))}
+                ${capabilitySelect(getv("thinking_capability"), v => setv("thinking_capability", v))}
+              </div>`}
+            </div>`}
           </div>`;
       };
 
       const renderModelCards = ({ title, basePath, note }) => {
-        const models = getModelsList(basePath);
-        const collapsed = isCollapsed(basePath);
-        const add = () => update(basePath + ".models", [...models, { _id: "card_" + Math.random().toString(36).slice(2), model:"", base_url:"", api_key:"", temperature:null, thinking:"default" }]);
+        const all = getModelsList(basePath);
+        const q = (cfgQuery || "").trim().toLowerCase();
+        // 搜索命中：模型名 / 卡片地址 / 连接名 / 连接地址。（索引必须指回原数组，
+        // 否则编辑会写到错误的卡片上）
+        const pairs = q
+          ? all.map((card, idx) => ({ card, idx }))
+              .filter(({ card }) => {
+                const c = connById(card.connection) || {};
+                return [card.model, card.base_url, c.name, c.base_url]
+                  .join(" ").toLowerCase().includes(q);
+              })
+          : all.map((card, idx) => ({ card, idx }));
+        if (q && pairs.length === 0) return null;
+        // 搜索时强制展开，否则「搜到了却看不见」
+        const open = q ? true : !isCollapsed(basePath);
+        const first = all[0] || {};
+        const primary = (first.model || "").trim();
+        const host = slotHost(first.base_url || (connById(first.connection) || {}).base_url);
+        const add = () => update(basePath + ".models", [...all, { _id: "card_" + Math.random().toString(36).slice(2), model:"", base_url:"", api_key:"", temperature:null, thinking:"default", max_tokens:null, timeout:null }]);
         return html`
-          <div class="section-title">${title}</div>
-          ${note && html`<div class="note" style=${{ marginBottom: 8 }}>${note}</div>`}
-          <div class="config-form">
-            <div style=${{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div class="note" style=${{ margin:0 }}>${models.length} 个模型 · 运行时按序 fallback（上一个失败自动用下一个）</div>
-              <button type="button" class="save-btn" style=${{ padding:"6px 12px", background:"transparent", color:"var(--accent)", borderColor:"var(--accent)" }}
-                onClick=${() => toggleCollapse(basePath)}>${collapsed ? "展开" : "折叠"}</button>
+          <div class="slot-group">
+            <div class=${"slot-group-head" + (open ? " open" : "")} onClick=${() => toggleCollapse(basePath)}>
+              <span class="slot-group-caret">${open ? "▾" : "▸"}</span>
+              <span class="slot-group-title">${title}</span>
+              <span class="slot-group-count">${all.length} 个</span>
+              ${primary
+                ? html`<span class="slot-group-model">${primary}</span>`
+                : html`<span class="slot-group-model empty">未配置 · 回退上级</span>`}
+              ${primary && all.length > 1 ? html`<span class="slot-group-meta">+${all.length - 1}</span>` : ""}
+              ${host ? html`<span class="slot-group-meta">${host}</span>` : ""}
             </div>
-            ${collapsed
-              ? html`<div class="note">已折叠（共 ${models.length} 个模型）。点击「展开」编辑。</div>`
-              : models.length === 0
+            ${open && html`<div class="slot-group-body">
+              ${note && html`<div class="note" style=${{ marginBottom: 8 }}>${note}</div>`}
+              <div class="cfg-sec-hint" style=${{ margin: "0 0 6px" }}>${pairs.length}${q ? " / " + all.length : ""} 个模型 · 运行时按序 fallback（上一个失败自动用下一个）</div>
+              ${all.length === 0
                 ? html`<div class="note" style=${{ color:"var(--muted)" }}>暂无模型卡片。若留空：Agent 执行回退全局默认模型；Provider 图片/视频回退另一 Provider 置顶项；TTS 回退免费 Edge TTS。</div>`
-                : models.map((card, idx) => renderModelCard(basePath, idx, card, models.length))}
-            <button type="button" class="save-btn" style=${{ marginTop:"8px" }} onClick=${add}>+ 添加模型</button>
+                : html`<div class="slot-list" style=${{ marginTop: 0 }}>${pairs.map(({ card, idx }) => renderModelCard(basePath, idx, card, all.length))}</div>`}
+              <button type="button" class="save-btn"
+                style=${{ marginTop:"10px", padding:"7px 14px", background:"transparent", color:"var(--accent)", borderColor:"var(--accent)" }}
+                onClick=${add}>+ 添加模型</button>
+            </div>`}
           </div>`;
       };
 
@@ -1382,7 +1881,166 @@
           `}
 
           ${tab === "config" && config && html`
-            <div class="section-title">模式管理（自定义模式）</div>
+            <div class="cfg-layout">
+              <nav class="cfg-nav">
+                ${CFG_NAV.map(s => html`<div key=${s.id} class=${"cfg-nav-item" + (cfgActive === s.id ? " active" : "")} onClick=${() => jumpCfg(s.id)}>${s.label}</div>`)}
+              </nav>
+              <div class="cfg-main">
+
+              <section id="cfg-connect" class="cfg-sec">
+                <div class="cfg-sec-head">模型与连接<span class="cfg-sec-hint">同一槽位内自上而下按序 fallback；留空即回退全局默认</span></div>
+                <div class="cfg-toolbar">
+                  <input class="seed-input" style=${{ flex: "1 1 auto", minWidth: "150px", maxWidth: "320px" }}
+                    placeholder="搜索模型 / host / 连接名…" value=${cfgQuery}
+                    onInput=${e => setCfgQuery(e.target.value)} />
+                  ${cfgQuery ? html`<button type="button" class="icon-btn" onClick=${() => setCfgQuery("")}>清除</button>` : ""}
+                  <button type="button" class="icon-btn" onClick=${() => setAllGroups(false)}>全部展开</button>
+                  <button type="button" class="icon-btn" onClick=${() => setAllGroups(true)}>全部折叠</button>
+                  <span class="cfg-sec-hint" style=${{ marginLeft: "auto", whiteSpace: "nowrap" }}>
+                    ${connList().length} 个连接 · ${slotTotal()} 个模型槽位
+                  </span>
+                </div>
+                ${renderConnections()}
+            ${renderModelSlot({title:"全局默认模型", note:"各 Agent / Provider 留空时回退到这里", basePath:"global", keyMap:{model:"default_model",base_url:"default_base_url",api_key:"default_api_key",thinking:"default_thinking",thinking_profile:"default_thinking_profile",thinking_capability:"default_thinking_capability",max_tokens:"default_max_tokens",timeout:"default_timeout"}, config, update, fetchModels})}
+
+            ${["creative","planner","executor"].map(key => {
+              const titles = {creative:"Agent1 · 创意", planner:"Agent2 · 规划", executor:"Agent3 · 执行"};
+              const notes = {creative:"高温度，脑洞大", planner:"低温度，严谨格式化", executor:"图片 / 视频由下方 provider 覆盖"};
+              return renderModelCards({title:titles[key], note:notes[key], basePath:"agents."+key});
+            })}
+
+            <div class="slot-group-sep">多模态（执行 Agent 调图片 / 视频 / 游戏时覆盖）</div>
+            ${["image","video","game"].map(pkey => {
+              const titles = {image:"图片模型", video:"视频模型", game:"小游戏模型"};
+              return renderModelCards({title:titles[pkey], basePath:"providers."+pkey});
+            })}
+
+            <div class="slot-group-sep">播客 TTS 语音合成（文字 → 语音）</div>
+            <div class="config-form" style=${{ marginTop: 8 }}>
+              <div class="note">无需选择引擎：<b>不填 base_url / api_key</b> → 自动使用免费 Edge TTS；<b>同时填好 base_url / api_key</b> → 走云端大模型（用下方 model 指定模型，任意兼容 OpenAI /audio/speech 的厂商均可）；云端调用出错会自动回退 Edge TTS。</div>
+              <div class="form-row"><label>音色 Voice</label>
+                ${picker({ key: "tts-voice", value: tp.voice || "", options: [...(voices.edge || []).map(v => v && v.id), ...(voices.cloud || []).map(v => v && v.id)].filter(Boolean),
+                  onPick: v => update("providers.tts.voice", v),
+                  placeholder: "Edge 例: zh-CN-XiaoxiaoNeural · 云端直接手写音色名", emptyLabel: "（留空=默认音色）" })}
+                <div class="note">可从下拉建议中随时改选，也可手写任意音色名</div>
+              </div>
+            </div>
+            ${renderModelCards({title:"TTS 模型", note:"未填 base_url / api_key → 免费 Edge TTS（忽略 model）；同时填了 → 用此处 model 调用云端大模型，出错自动回退 Edge。", basePath:"providers.tts"})}
+              </section>
+
+              <section id="cfg-behavior" class="cfg-sec">
+                <div class="cfg-sec-head">行为与成本<span class="cfg-sec-hint">Mock 开关 / 随机性 / Token 成本换算</span></div>
+                <div class="config-form">
+              <div class="form-row"><label>
+                <input type="checkbox" checked=${!!config.mock} onInput=${e => update("mock", e.target.checked)} /> Mock 模式（无真实 key 时本地模拟）</label></div>
+              <div class="section-title">随机性</div>
+              <div class="form-row"><label>每抽抽取种子数</label>
+                <input type="number" value=${rnd.per_open_draw ?? 2} onInput=${e => update("randomness.per_open_draw", Number(e.target.value))} /></div>
+
+                </div>
+                <div class="config-form">
+              <div class="section-title">成本估算（Token 追踪）</div>
+              <div class="form-row"><label>每千 token 单价（¥，0 = 不估算成本；历史面板与统计页按此换算）</label>
+                <input type="number" step="0.001" value=${g.tokens_price ?? 0}
+                  onInput=${e => update("global.tokens_price", e.target.value === "" ? 0 : Number(e.target.value))}
+                  placeholder="如 0.01（即每千 token 一分钱）" /></div>
+                </div>
+              </section>
+
+              <section id="cfg-seeds" class="cfg-sec">
+                <div class="cfg-sec-head">种子池<span class="cfg-sec-hint">四维候选词 + code 专用工具池（手填 / 生成 / 一键刷新）</span></div>
+                <div class="config-form">
+              <div class="note">四个维度各维护一组候选词条，每次开盲盒从中抽取。可手动增删改，也可用「🎲 生成」调用大模型补一条（已自动避开重复）。</div>
+              <div class="slot-list">
+              ${poolDims.map(dim => {
+                const k = "pool-" + dim;
+                const items = getPool(dim);
+                const open = !!openSlots[k];
+                return html`
+                <div class="slot-item" key=${dim}>
+                  <div class=${"slot-row" + (open ? " open" : "")} onClick=${() => toggleSlot(k)}>
+                    <span class="slot-name" style=${{ minWidth: "40px" }}>${dimCn[dim]}</span>
+                    <span class="slot-model empty">${items.length} 条${items.length ? " · 例：" + (items[0] || "") : ""}</span>
+                    <span class="slot-actions" onClick=${e => e.stopPropagation()}>
+                      <button type="button" class="icon-btn" disabled=${poolUI.gen?.[dim]} onClick=${() => genSeed(dim)}>
+                        ${poolUI.gen?.[dim] ? "生成中…" : "🎲 生成"}</button>
+                    </span>
+                    <span class="slot-meta">${open ? "▾" : "▸"}</span>
+                  </div>
+                  ${open && html`<div class="slot-body" style=${{ paddingTop: "10px" }}>
+                    ${items.map((it, idx) => html`
+                      <div style=${{ display: "flex", gap: "6px", marginBottom: "6px" }}>
+                        <input value=${it} onInput=${e => editItem(dim, idx, e.target.value)} style=${{ flex: 1 }} />
+                        <button type="button" class="icon-btn danger" onClick=${() => removeItem(dim, idx)}>×</button>
+                      </div>`)}
+                    <div style=${{ display: "flex", gap: "6px", marginTop: "8px" }}>
+                      <input placeholder=${"新增一条" + dimCn[dim] + "…"}
+                        value=${poolUI.addText?.[dim] || ""}
+                        onInput=${e => setPoolUI(s => ({ ...s, addText: { ...s.addText, [dim]: e.target.value } }))}
+                        onKeyDown=${e => { if (e.key === "Enter") addItem(dim); }} style=${{ flex: 1 }} />
+                      <button type="button" class="icon-btn" onClick=${() => addItem(dim)}>添加</button>
+                    </div>
+                    ${poolUI.genErr?.[dim] && html`<div class="error">${poolUI.genErr[dim]}</div>`}
+                  </div>`}
+                </div>`;
+              })}
+              </div>
+              <button type="button" class="save-btn"
+                style=${{ marginTop: "10px", background: "transparent", color: "var(--muted)" }}
+                onClick=${resetPool}>↺ 恢复默认种子池</button>
+              <button type="button" class="save-btn"
+                style=${{ marginTop: "6px", background: "var(--accent)", color: "#fff", width: "100%" }}
+                disabled=${refreshingAll}
+                onClick=${refreshAllSeeds}>${refreshingAll ? "⏳ 正在刷新..." : "🔀 一键刷新种子池"}</button>
+              ${refreshErr && html`<div class="error">${refreshErr}</div>`}
+              ${codeModeIdx() >= 0 && html`
+                <div class="section-title" style=${{ marginTop: "18px" }}>代码模式独立工具池（code 专用）</div>
+                <div class="note">代码盲盒使用独立种子池（与上方全局池互不影响），抽取「实用工具」方向。同样支持手动增删改、🎲 生成、一键刷新。</div>
+              <div class="slot-list">
+              ${poolDims.map(dim => {
+                const k = "mpool-" + dim;
+                const items = getModePool(dim);
+                const open = !!openSlots[k];
+                return html`
+                <div class="slot-item" key=${dim}>
+                  <div class=${"slot-row" + (open ? " open" : "")} onClick=${() => toggleSlot(k)}>
+                    <span class="slot-name" style=${{ minWidth: "40px" }}>${dimCn[dim]}</span>
+                    <span class="slot-model empty">${items.length} 条${items.length ? " · 例：" + (items[0] || "") : ""}</span>
+                    <span class="slot-actions" onClick=${e => e.stopPropagation()}>
+                      <button type="button" class="icon-btn" disabled=${modePoolUI.gen?.[dim]} onClick=${() => genModeSeed(dim)}>
+                        ${modePoolUI.gen?.[dim] ? "生成中…" : "🎲 生成"}</button>
+                    </span>
+                    <span class="slot-meta">${open ? "▾" : "▸"}</span>
+                  </div>
+                  ${open && html`<div class="slot-body" style=${{ paddingTop: "10px" }}>
+                    ${items.map((it, idx) => html`
+                      <div style=${{ display: "flex", gap: "6px", marginBottom: "6px" }}>
+                        <input value=${it} onInput=${e => editModeItem(dim, idx, e.target.value)} style=${{ flex: 1 }} />
+                        <button type="button" class="icon-btn danger" onClick=${() => removeModeItem(dim, idx)}>×</button>
+                      </div>`)}
+                    <div style=${{ display: "flex", gap: "6px", marginTop: "8px" }}>
+                      <input placeholder=${"新增一条" + dimCn[dim] + "…"}
+                        value=${modePoolUI.addText?.[dim] || ""}
+                        onInput=${e => setModePoolUI(s => ({ ...s, addText: { ...s.addText, [dim]: e.target.value } }))}
+                        onKeyDown=${e => { if (e.key === "Enter") addModeItem(dim); }} style=${{ flex: 1 }} />
+                      <button type="button" class="icon-btn" onClick=${() => addModeItem(dim)}>添加</button>
+                    </div>
+                    ${modePoolUI.genErr?.[dim] && html`<div class="error">${modePoolUI.genErr[dim]}</div>`}
+                  </div>`}
+                </div>`;
+              })}
+              </div>
+                <button type="button" class="save-btn"
+                  style=${{ marginTop: "10px", background: "var(--accent)", color: "#fff", width: "100%" }}
+                  disabled=${modeRefreshing}
+                  onClick=${refreshModeSeeds}>${modeRefreshing ? "⏳ 正在刷新..." : "🔀 一键刷新 code 工具池"}</button>
+                ${modeRefreshErr && html`<div class="error">${modeRefreshErr}</div>`}
+              `}
+                </div>
+              </section>
+
+              <section id="cfg-modes" class="cfg-sec">
+                <div class="cfg-sec-head">模式管理<span class="cfg-sec-hint">新增自定义模式，保存后可在开盲盒页选择</span></div>
             <div class="config-form">
               <div class="note">已有 ${config.modes?.length || 0} 个模式。可在下方新增自定义模式（id 需唯一、executor_type 需在合法枚举内），保存后即可在开盲盒页选择。</div>
               ${!showNewMode ? html`
@@ -1411,121 +2069,23 @@
                 </div>
                 ${newModeErr && html`<div class="error">${newModeErr}</div>`}`}
             </div>
+              </section>
 
-            <div class="section-title">全局配置</div>
-            <div class="config-form">
-              <div class="form-row"><label>
-                <input type="checkbox" checked=${!!config.mock} onInput=${e => update("mock", e.target.checked)} /> Mock 模式（无真实 key 时本地模拟）</label></div>
-              <div class="section-title">随机性</div>
-              <div class="form-row"><label>每抽抽取种子数</label>
-                <input type="number" value=${rnd.per_open_draw ?? 2} onInput=${e => update("randomness.per_open_draw", Number(e.target.value))} /></div>
+              <section id="cfg-storage" class="cfg-sec">
+                <div class="cfg-sec-head">存储与路径<span class="cfg-sec-hint">缓存 / 产物 / 上传目录</span></div>
+                <div class="config-form">
+            <div class="paths">${"大文件目录（默认项目目录内，可配置）：\n缓存: " + (paths.cache_dir||"") + "\n产物: " + (paths.output_dir||"") + "\n上传: " + (paths.data_dir||"")}</div>
+                </div>
+              </section>
 
-              <div class="section-title">成本估算（Token 追踪）</div>
-              <div class="form-row"><label>每千 token 单价（¥，0 = 不估算成本；历史面板与统计页按此换算）</label>
-                <input type="number" step="0.001" value=${g.tokens_price ?? 0}
-                  onInput=${e => update("global.tokens_price", e.target.value === "" ? 0 : Number(e.target.value))}
-                  placeholder="如 0.01（即每千 token 一分钱）" /></div>
-
-              <div class="section-title">随机种子池（twist pool）</div>
-              <div class="note">四个维度各维护一组候选词条，每次开盲盒从中抽取。可手动增删改，也可用「🎲 生成」调用大模型补一条（已自动避开重复）。</div>
-              ${poolDims.map(dim => html`
-                <div class="config-form" style=${{ marginTop: "10px" }}>
-                  <div style=${{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div class="section-title" style=${{ margin: "0" }}>${dimCn[dim]}（${dim}）</div>
-                    <button type="button" class="save-btn" style=${{ padding: "6px 12px" }}
-                      disabled=${poolUI.gen?.[dim]} onClick=${() => genSeed(dim)}>
-                      ${poolUI.gen?.[dim] ? "生成中…" : "🎲 生成新种子"}
-                    </button>
-                  </div>
-                  ${getPool(dim).map((it, idx) => html`
-                    <div style=${{ display: "flex", gap: "6px", marginTop: "6px" }}>
-                      <input value=${it} onInput=${e => editItem(dim, idx, e.target.value)} style=${{ flex: 1 }} />
-                      <button type="button" class="save-btn"
-                        style=${{ padding: "6px 10px", background: "var(--danger)", borderColor: "var(--danger)" }}
-                        onClick=${() => removeItem(dim, idx)}>×</button>
-                    </div>`)}
-                  <div style=${{ display: "flex", gap: "6px", marginTop: "6px" }}>
-                    <input placeholder=${"新增一条" + dimCn[dim] + "…"}
-                      value=${poolUI.addText?.[dim] || ""}
-                      onInput=${e => setPoolUI(s => ({ ...s, addText: { ...s.addText, [dim]: e.target.value } }))}
-                      onKeyDown=${e => { if (e.key === "Enter") addItem(dim); }} style=${{ flex: 1 }} />
-                    <button type="button" class="save-btn" style=${{ padding: "6px 10px" }} onClick=${() => addItem(dim)}>添加</button>
-                  </div>
-                  ${poolUI.genErr?.[dim] && html`<div class="error">${poolUI.genErr[dim]}</div>`}
-                </div>`)}
-              <button type="button" class="save-btn"
-                style=${{ marginTop: "10px", background: "transparent", color: "var(--muted)" }}
-                onClick=${resetPool}>↺ 恢复默认种子池</button>
-              <button type="button" class="save-btn"
-                style=${{ marginTop: "6px", background: "var(--accent)", color: "#fff", width: "100%" }}
-                disabled=${refreshingAll}
-                onClick=${refreshAllSeeds}>${refreshingAll ? "⏳ 正在刷新..." : "🔀 一键刷新种子池"}</button>
-              ${refreshErr && html`<div class="error">${refreshErr}</div>`}
-
-              ${codeModeIdx() >= 0 && html`
-                <div class="section-title" style=${{ marginTop: "18px" }}>代码模式独立工具池（code 专用）</div>
-                <div class="note">代码盲盒使用独立种子池（与上方全局池互不影响），抽取「实用工具」方向。同样支持手动增删改、🎲 生成、一键刷新。</div>
-                ${poolDims.map(dim => html`
-                  <div class="config-form" style=${{ marginTop: "10px" }}>
-                    <div style=${{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div class="section-title" style=${{ margin: "0" }}>${dimCn[dim]}（${dim}）</div>
-                      <button type="button" class="save-btn" style=${{ padding: "6px 12px" }}
-                        disabled=${modePoolUI.gen?.[dim]} onClick=${() => genModeSeed(dim)}>
-                        ${modePoolUI.gen?.[dim] ? "生成中…" : "🎲 生成新种子"}
-                      </button>
-                    </div>
-                    ${getModePool(dim).map((it, idx) => html`
-                      <div style=${{ display: "flex", gap: "6px", marginTop: "6px" }}>
-                        <input value=${it} onInput=${e => editModeItem(dim, idx, e.target.value)} style=${{ flex: 1 }} />
-                        <button type="button" class="save-btn"
-                          style=${{ padding: "6px 10px", background: "var(--danger)", borderColor: "var(--danger)" }}
-                          onClick=${() => removeModeItem(dim, idx)}>×</button>
-                      </div>`)}
-                    <div style=${{ display: "flex", gap: "6px", marginTop: "6px" }}>
-                      <input placeholder=${"新增一条" + dimCn[dim] + "…"}
-                        value=${modePoolUI.addText?.[dim] || ""}
-                        onInput=${e => setModePoolUI(s => ({ ...s, addText: { ...s.addText, [dim]: e.target.value } }))}
-                        onKeyDown=${e => { if (e.key === "Enter") addModeItem(dim); }} style=${{ flex: 1 }} />
-                      <button type="button" class="save-btn" style=${{ padding: "6px 10px" }} onClick=${() => addModeItem(dim)}>添加</button>
-                    </div>
-                    ${modePoolUI.genErr?.[dim] && html`<div class="error">${modePoolUI.genErr[dim]}</div>`}
-                  </div>`)}
-                <button type="button" class="save-btn"
-                  style=${{ marginTop: "10px", background: "var(--accent)", color: "#fff", width: "100%" }}
-                  disabled=${modeRefreshing}
-                  onClick=${refreshModeSeeds}>${modeRefreshing ? "⏳ 正在刷新..." : "🔀 一键刷新 code 工具池"}</button>
-                ${modeRefreshErr && html`<div class="error">${modeRefreshErr}</div>`}
-              `}
+              </div>
             </div>
 
-            ${renderModelSlot({title:"全局默认模型（各 Agent/Provider 留空时回退）", basePath:"global", keyMap:{model:"default_model",base_url:"default_base_url",api_key:"default_api_key",thinking:"default_thinking"}, config, update, fetchModels})}
-
-            ${["creative","planner","executor"].map(key => {
-              const titles = {creative:"Agent1 创意（高温度，脑洞大）", planner:"Agent2 规划（低温度，严谨格式化）", executor:"Agent3 执行（图片/视频由下方 provider 覆盖）"};
-              return renderModelCards({title:titles[key], basePath:"agents."+key});
-            })}
-
-            <div class="section-title">图片 / 视频 / 游戏 模型（执行 Agent 调多模态时覆盖，运行时按序 fallback）</div>
-            ${["image","video","game"].map(pkey => {
-              const titles = {image:"图片模型", video:"视频模型", game:"小游戏模型"};
-              return renderModelCards({title:titles[pkey], basePath:"providers."+pkey});
-            })}
-
-            <div class="section-title">播客 TTS 语音合成（文字 → 语音）</div>
-            <div class="config-form">
-              <div class="note">无需选择引擎：<b>不填 base_url / api_key</b> → 自动使用免费 Edge TTS；<b>同时填好 base_url / api_key</b> → 走云端大模型（用下方 model 指定模型，任意兼容 OpenAI /audio/speech 的厂商均可）；云端调用出错会自动回退 Edge TTS。</div>
-              <div class="form-row"><label>音色 Voice</label>
-                ${picker({ key: "tts-voice", value: tp.voice || "", options: [...(voices.edge || []).map(v => v && v.id), ...(voices.cloud || []).map(v => v && v.id)].filter(Boolean),
-                  onPick: v => update("providers.tts.voice", v),
-                  placeholder: "Edge 例: zh-CN-XiaoxiaoNeural · 云端直接手写音色名", emptyLabel: "（留空=默认音色）" })}
-                <div class="note">可从下拉建议中随时改选，也可手写任意音色名</div>
-              </div>
-            ${renderModelCards({title:"TTS 模型（云端模式必填 model / base_url / api_key；未填 base_url/api_key 则默认免费 Edge TTS；云端出错自动回退 Edge）", basePath:"providers.tts", note:"未填 base_url / api_key → 免费 Edge TTS（忽略 model）；同时填了 → 用此处 model 调用云端大模型，出错自动回退 Edge。"})}
-
-            <div class="paths">${"大文件目录（默认项目目录内，可配置）：\n缓存: " + (paths.cache_dir||"") + "\n产物: " + (paths.output_dir||"") + "\n上传: " + (paths.data_dir||"")}</div>
-            ${saved && html`<div class="note" style="color:var(--accent-2)">✓ 已保存</div>`}
-            ${error && html`<div class="error">${error}</div>`}
-            <button class="save-btn" style="margin-top:12px" onClick=${save}>保存配置</button>
+            <div class="cfg-savebar">
+              <span class=${"sb-text" + (dirtyCount ? " dirty" : "")}>${dirtyCount ? dirtyCount + " 处未保存改动" : (saved ? "✓ 已保存" : "尚未修改")}</span>
+              <button type="button" class="icon-btn" style=${{ padding: "7px 14px" }} disabled=${!dirtyCount} onClick=${undoConfig}>撤销</button>
+              <button type="button" class="save-btn" disabled=${!dirtyCount} onClick=${save}>保存配置</button>
+              ${error && html`<div class="error" style=${{ flex: "1 1 100%", margin: 0 }}>${error}</div>`}
             </div>
           `}
 
